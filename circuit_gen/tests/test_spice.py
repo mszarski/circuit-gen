@@ -282,3 +282,11 @@ def test_switching_regulator_needs_transient_analysis():
     lines, analysis, expr = _testbench(nl, {"measure": "avg(OUT)", "analysis": "tran",
                                             "duration": 0.008, "expect": [0, 1]})
     assert expr == "cg_m" and "1e-07" in analysis[0]
+
+
+def test_tolerance_hint_when_only_corners_fail():
+    from circuit_gen.spice import TestResult
+    corner = TestResult(name="f", passed=False, value=1000, expect=[750, 1250], spread=[1021, 1543])
+    assert "only tolerance corners fail" in corner.describe()
+    wrong = TestResult(name="f", passed=False, value=1600, expect=[750, 1250], spread=[1500, 1700])
+    assert "tolerance corners" not in wrong.describe()

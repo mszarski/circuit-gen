@@ -374,7 +374,12 @@ class TestResult:
         text = f"{self.name}: {'pass' if self.passed else 'FAIL'} measured {self.value:.4g}"
         if self.spread:
             text += f" ({self.spread[0]:.4g}..{self.spread[1]:.4g} across tolerances)"
-        return text + f", required {lo:g}..{hi:g}"
+        text += f", required {lo:g}..{hi:g}"
+        if not self.passed and self.spread and lo <= self.value <= hi:
+            text += (" -- the nominal value passes and only tolerance corners fail: use "
+                     "closer-tolerance parts (tolerance=0.01 on resistors, 0.05 on capacitors) "
+                     "or move the nominal value towards the middle of the range")
+        return text
 
 
 TRAN_MEASURES = ("freq", "avg", "ripple", "duty", "iavg")
@@ -484,6 +489,43 @@ def corner_variants(nl, samples=CORNER_SAMPLES, seed=0):
             for sign in signs]
 
 
+def _run_deck(nl, tb, analyses, timeout):
+    """Run one ngspice deck; return its combined output (raises TimeoutExpired)."""
+    deck = "\n".join(["* circuit_gen", MODELS, *nl.models, *nl.lines, *tb,
+                      ".option rshunt=1e10",           # tie nodes left floating by unmodeled parts
+                      ".control", *analyses, ".endc", ".end", ""])
+    with tempfile.TemporaryDirectory() as tmp:
+        cir = Path(tmp) / "test.cir"
+        cir.write_text(deck)
+        proc = subprocess.run([NGSPICE, "-b", str(cir)], capture_output=True, text=True,
+                              timeout=timeout)
+    return proc.stdout + proc.stderr
+
+
+def run_variants(nl, test, variants, timeout=60):
+    """The test's value with each set of component values (alter); None where it failed.
+
+    Returns (values, error): values[k] belongs to variants[k] ({} = nominal).
+    """
+    try:
+        tb, analysis, expr = _testbench(nl, test)
+    except (KeyError, ValueError) as e:
+        return None, str(e).strip("'\"")
+    control = []
+    for k, values in enumerate(variants):
+        control += [f"alter {elem} = {value:.6g}" for elem, value in values.items()]
+        control += (analysis if isinstance(analysis, list) else [analysis])
+        control += [f"let cg_r{k} = {expr}", f"print cg_r{k}"]
+    try:
+        out = _run_deck(nl, tb, control, timeout * max(1, len(variants) // 25 + 1))
+    except subprocess.TimeoutExpired:
+        return None, "ngspice timed out"
+    found = {int(k): float(v) for k, v in re.findall(r"cg_r(\d+)\s*=\s*([-+0-9.eE]+)", out)}
+    if 0 not in found:
+        return None, next((l.strip() for l in out.splitlines() if "rror" in l), "no result from ngspice")
+    return [found.get(k) for k in range(len(variants))], None
+
+
 def run_test(nl, test, timeout=60, corners=False):
     """Run one test at nominal values, and at tolerance corners if `corners` is set.
 
@@ -491,39 +533,83 @@ def run_test(nl, test, timeout=60, corners=False):
     every corner is inside the expected range, and `spread` gives the min/max.
     """
     name = test.get("name", test["measure"])
-    try:
-        tb, analysis, expr = _testbench(nl, test)
-    except (KeyError, ValueError) as e:
-        return TestResult(name=name, passed=False, expect=test["expect"], error=str(e).strip("'\""))
-
     variants = [{}] + (corner_variants(nl) if corners else [])
-    control = [".control"]
-    for k, values in enumerate(variants):
-        control += [f"alter {elem} = {value:.6g}" for elem, value in values.items()]
-        control += (analysis if isinstance(analysis, list) else [analysis])
-        control += [f"let cg_r{k} = {expr}", f"print cg_r{k}"]
-    control += [".endc"]
-    deck = "\n".join([f"* {name}", MODELS, *nl.models, *nl.lines, *tb,
-                      ".option rshunt=1e10",           # tie nodes left floating by unmodeled parts
-                      *control, ".end", ""])
-    with tempfile.TemporaryDirectory() as tmp:
-        cir = Path(tmp) / "test.cir"
-        cir.write_text(deck)
-        try:
-            proc = subprocess.run([NGSPICE, "-b", str(cir)], capture_output=True, text=True,
-                                  timeout=timeout)
-        except subprocess.TimeoutExpired:
-            return TestResult(name=name, passed=False, expect=test["expect"], error="ngspice timed out")
-    out = proc.stdout + proc.stderr
-    found = {int(k): float(v) for k, v in re.findall(r"cg_r(\d+)\s*=\s*([-+0-9.eE]+)", out)}
-    if 0 not in found or len(found) < len(variants):
-        err = next((l.strip() for l in out.splitlines() if "rror" in l), "no result from ngspice")
-        return TestResult(name=name, passed=False, expect=test["expect"], error=err)
+    values, error = run_variants(nl, test, variants, timeout)
+    if error or any(v is None for v in values):
+        return TestResult(name=name, passed=False, expect=test["expect"],
+                          error=error or "no result from ngspice for some tolerance corners")
     lo, hi = test["expect"]
-    values = [found[k] for k in range(len(variants))]
     spread = [min(values), max(values)] if corners else None
     passed = all(lo <= v <= hi for v in values)
-    return TestResult(name=name, passed=passed, value=found[0], expect=[lo, hi], spread=spread)
+    return TestResult(name=name, passed=passed, value=values[0], expect=[lo, hi], spread=spread)
+
+
+def sweep(nl, test, mode="ac", start=10.0, stop=1e6, points=21, source=None, timeout=120):
+    """A measurement across frequency (mode "ac") or across one DC source (mode "dc").
+
+    Returns (rows, error): rows are (x, value) pairs.
+    """
+    if mode == "ac":
+        test = {**test, "analysis": "ac"}
+        decades = max(math.log10(stop / start), 0.1)
+        per_decade = max(1, round((points - 1) / decades))
+        sweep_line = f"ac dec {per_decade} {start:.6g} {stop:.6g}"
+    else:
+        if source not in test.get("sources", {}):
+            return None, f"the swept net {source} needs an entry in sources"
+        test = {**test, "analysis": "op"}
+        step = (stop - start) / max(points - 1, 1)
+        sweep_line = None
+    try:
+        tb, _, expr = _testbench(nl, test)
+    except (KeyError, ValueError) as e:
+        return None, str(e).strip("'\"")
+    if sweep_line is None:
+        node = nl.node_for(source) if not is_ground(source) else None
+        if node is None:
+            return None, f"cannot sweep {source}"
+        sweep_line = f"dc V_{node} {start:.6g} {stop:.6g} {step:.6g}"
+    # Printing a vector lists its sweep scale (frequency or source value) beside it.
+    control = [sweep_line, f"let cg_y = {expr}", "set width=200", "print cg_y"]
+    try:
+        out = _run_deck(nl, tb, control, timeout)
+    except subprocess.TimeoutExpired:
+        return None, "ngspice timed out"
+    rows = []
+    for line in out.splitlines():
+        parts = line.split()
+        if len(parts) >= 3 and parts[0].isdigit():
+            try:
+                x, y = float(parts[1].split(",")[0]), float(parts[-1].split(",")[0])
+            except ValueError:
+                continue
+            rows.append((x, y))
+    if not rows:
+        return None, next((l.strip() for l in out.splitlines() if "rror" in l), "no result from ngspice")
+    return rows, None
+
+
+def stress(nl, tests, factors=(2.0, 0.5), timeout=60):
+    """Component changes the tests do not notice.
+
+    Each resistor, capacitor and inductor is scaled by each factor on its own; a
+    change after which every test still passes at nominal values is returned as
+    (SPICE element, factor). Tests that fail or error on the unchanged circuit are
+    left out of the judgement.
+    """
+    elems = sorted(nl.tolerances)
+    variants = [{}] + [{e: nl.tolerances[e][0] * f} for e in elems for f in factors]
+    labels = [None] + [(e, f) for e in elems for f in factors]
+    still_pass = set(labels[1:])
+    for test in tests:
+        values, error = run_variants(nl, test, variants, timeout)
+        lo, hi = test["expect"]
+        if error or values[0] is None or not lo <= values[0] <= hi:
+            continue
+        for label, v in zip(labels[1:], values[1:]):
+            if v is None or not lo <= v <= hi:
+                still_pass.discard(label)
+    return [l for l in labels[1:] if l in still_pass]
 
 
 @dataclass

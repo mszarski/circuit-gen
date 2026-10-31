@@ -254,13 +254,42 @@ not weaken a requirement the description actually demands."""
 
 def revise_spec(description, backend, workdir, spec_code, requirement, reason, attempts=3):
     """Let the spec writer answer a designer's objection. Returns (requirements, code)."""
-    backend.start(SPEC_PROMPT, f"Board description:\n\n{description}\n\n" + REVISE_NOTE.format(
-        requirement=requirement, reason=reason, spec=spec_code.strip()), [])
+    note = REVISE_NOTE.format(requirement=requirement, reason=reason, spec=spec_code.strip())
+    return _respec(description, backend, workdir, note, "spec_revised.py", attempts)
+
+
+STRESS_NOTE = """A design now meets all of your requirements. To test them, each resistor, \
+capacitor and inductor in it was scaled by 2 and by 0.5, one at a time. These \
+changes left every requirement passing:
+
+{findings}
+
+Current requirements:
+{spec}
+
+If any of these parts sets behaviour the description asks for (a gain, a \
+frequency response, a threshold, a current), the requirements are too weak \
+there: reply with the complete list, adding or tightening requirements so such \
+an error would fail. Parts that rightly do not matter (decoupling, pull-ups, \
+bias resistors with wide margins) need nothing. Do not demand more than the \
+description does. If nothing needs to change, reply with the same list."""
+
+
+def strengthen_spec(description, backend, workdir, spec_code, findings, attempts=3):
+    """Ask the spec writer to cover component changes its requirements missed."""
+    note = STRESS_NOTE.format(findings="\n".join(f"- {f}" for f in findings),
+                              spec=spec_code.strip())
+    return _respec(description, backend, workdir, note, "spec_strengthened.py", attempts)
+
+
+def _respec(description, backend, workdir, note, filename, attempts):
+    backend.start(SPEC_PROMPT, f"Board description:\n\n{description}\n\n" + note, [])
     last_error = None
     for _ in range(attempts):
         turn = backend.step()
         with open(workdir / "spec_transcript.jsonl", "a") as f:
-            f.write(json.dumps({"stop": turn.stop, "revision": True, **turn.record}, default=str) + "\n")
+            f.write(json.dumps({"stop": turn.stop, "revision": filename, **turn.record},
+                               default=str) + "\n")
         if turn.stop in ("refusal", "max_tokens"):
             last_error = SpecError(f"spec revision ended with {turn.stop}")
             continue
@@ -272,6 +301,6 @@ def revise_spec(description, backend, workdir, spec_code, requirement, reason, a
             backend.add_user_message(f"{e}. Reply with only require(...) lines.")
             continue
         code = to_code(reqs)
-        (workdir / "spec_revised.py").write_text(code)
+        (workdir / filename).write_text(code)
         return reqs, code
     raise last_error

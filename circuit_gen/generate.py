@@ -23,6 +23,7 @@ FEW_SHOT_EXAMPLES = ["ldo_3v3.py", "blinker_555.py"]
 MAX_TURNS = 40
 MAX_TOKEN_RETRIES = 3
 MAX_SPEC_REVISIONS = 1
+MAX_STRESS_ROUNDS = 1    # spec strengthening rounds after a stress test of a passing design
 
 SYSTEM_PROMPT = """\
 You are an electronics design engineer. You turn a plain-language description \
@@ -54,7 +55,8 @@ How to work:
 5. Call check_circuit with the complete code. Fix every error it reports and \
    check again. A failed requirement means the circuit is wrong: change the \
    circuit (or tighten part tolerances), never widen a requirement beyond what \
-   the description asks for. Use simulate to investigate failures.
+   the description asks for. Use simulate to investigate failures, and sweep \
+   to see a whole frequency response or transfer curve in one call.
    Make each range as tight as the description implies, not tighter: \
    "about 100" allows roughly ±25%, while "3.3 V ±5%" means exactly that. \
    Check outputs under a realistic load (e.g. 10k on an audio or signal \
@@ -182,15 +184,45 @@ TOOLS = [
             "type": "object",
             "properties": {
                 "code": {"type": "string", "description": "Complete SKiDL code"},
-                "analysis": {"type": "string", "enum": ["op", "ac"],
-                             "description": "op = DC operating point (default), ac = small-signal"},
+                "analysis": {"type": "string", "enum": ["op", "ac", "tran"],
+                             "description": "op = DC operating point (default), ac = small-signal, "
+                                            "tran = transient (freq, avg, ripple, duty, iavg)"},
                 "freq": {"type": "number", "description": "AC frequency in Hz (ac only)"},
+                "duration": {"type": "number", "description": "transient run time in seconds"},
                 "sources": {"type": "object",
                             "description": "net name -> volts, or \"ac\" for the AC input, "
                                            "e.g. {\"VCC\": 5, \"IN\": \"ac\"}"},
                 "loads": {"type": "object",
                           "description": "net name -> ohms to ground, or {\"to\": NET, \"r\": OHMS}"},
+                "measure": {"type": "string",
+                            "description": "v(NET), i(NET), gain(OUT,IN), or with analysis tran "
+                                           "freq(NET), avg(NET), ripple(NET), duty(NET), iavg(NET)"},
+            },
+            "required": ["code", "measure"],
+        },
+    },
+    {
+        "name": "sweep",
+        "description": "Run complete SKiDL code and return a measurement across a range in one "
+                       "call: mode \"ac\" sweeps frequency (e.g. gain(OUT,IN) from start to stop "
+                       "Hz, with the peak and -3 dB points), mode \"dc\" sweeps the voltage of "
+                       "one source net (e.g. v(OUT) as VIN goes from start to stop volts). Use it "
+                       "to see a whole response instead of probing one point at a time.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "code": {"type": "string", "description": "Complete SKiDL code"},
+                "mode": {"type": "string", "enum": ["ac", "dc"]},
                 "measure": {"type": "string", "description": "v(NET), i(NET) or gain(OUT,IN)"},
+                "sources": {"type": "object",
+                            "description": "net name -> volts, or \"ac\" for the AC input; for "
+                                           "dc mode include the swept net"},
+                "loads": {"type": "object",
+                          "description": "net name -> ohms to ground, or {\"to\": NET, \"r\": OHMS}"},
+                "sweep_net": {"type": "string", "description": "dc mode: the source net to sweep"},
+                "start": {"type": "number", "description": "Hz (ac) or volts (dc)"},
+                "stop": {"type": "number", "description": "Hz (ac) or volts (dc)"},
+                "points": {"type": "integer", "description": "number of points (default 21)"},
             },
             "required": ["code", "measure"],
         },
@@ -203,6 +235,7 @@ class Attempt:
     code: str
     passed: bool
     feedback: str
+    circuit: dict | None = None     # circuit.json data, when the code ran
 
 
 @dataclass
@@ -215,6 +248,7 @@ class GenerationResult:
     turns: int = 0
     error: str | None = None
     spec_revisions: int = 0
+    spec_strengthened: int = 0      # stress-test rounds that changed the requirements
 
 
 def _format_symbols(entries):
@@ -242,7 +276,8 @@ class Toolbox:
             passed = report.ok and not run.erc_errors
         feedback = ("PASSED. " if passed else "FAILED. ") + feedback
         # Keep the exact code that was checked, frozen requirements included.
-        self.attempts.append(Attempt(code=code + self.suffix, passed=passed, feedback=feedback))
+        self.attempts.append(Attempt(code=code + self.suffix, passed=passed, feedback=feedback,
+                                     circuit=run.circuit if run.ok else None))
         return feedback
 
     def simulate(self, args):
@@ -254,7 +289,8 @@ class Toolbox:
         if not run.ok:
             return run.summary(), True
         test = {"name": args["measure"], "analysis": args.get("analysis", "op"),
-                "freq": args.get("freq", 1000), "sources": args.get("sources") or {},
+                "freq": args.get("freq", 1000), "duration": args.get("duration", 5.0),
+                "sources": args.get("sources") or {},
                 "loads": args.get("loads") or {}, "measure": args["measure"],
                 "expect": [-1e30, 1e30]}
         report = simulate(run.circuit, [test])
@@ -266,6 +302,38 @@ class Toolbox:
         if report.unmodeled:
             text += "\nNot simulated (no model): " + ", ".join(report.unmodeled)
         return text, bool(result.error)
+
+    def sweep(self, args):
+        """A model-requested sweep as a small table plus a summary. Returns (content, is_error)."""
+        from .spice import sweep, to_netlist
+        self.sim_runs += 1
+        run = run_circuit_code(args["code"] + self.suffix,
+                               self.workdir / "sims" / f"{self.sim_runs:02d}")
+        if not run.ok:
+            return run.summary(), True
+        mode = args.get("mode", "ac")
+        start = float(args.get("start", 10 if mode == "ac" else 0))
+        stop = float(args.get("stop", 1e6 if mode == "ac" else 5))
+        points = max(3, min(int(args.get("points", 21)), 61))
+        test = {"measure": args["measure"], "sources": args.get("sources") or {},
+                "loads": args.get("loads") or {}, "expect": [-1e30, 1e30]}
+        nl = to_netlist(run.circuit)
+        rows, error = sweep(nl, test, mode, start, stop, points, args.get("sweep_net"))
+        if error:
+            return f"Sweep error: {error}", True
+        unit = "Hz" if mode == "ac" else "V"
+        lines = [f"{'frequency' if mode == 'ac' else args.get('sweep_net')} ({unit})  {args['measure']}"]
+        lines += [f"{x:.4g}  {y:.4g}" for x, y in rows]
+        if mode == "ac":
+            peak_x, peak = max(rows, key=lambda r: r[1])
+            lines.append(f"peak {peak:.4g} at {peak_x:.4g} Hz")
+            edge = [x for (x, y), (x2, y2) in zip(rows, rows[1:])
+                    if (y - peak / 2 ** 0.5) * (y2 - peak / 2 ** 0.5) < 0]
+            if edge:
+                lines.append("-3 dB from the peak near " + ", ".join(f"{x:.3g} Hz" for x in edge))
+        if nl.unmodeled:
+            lines.append("Not simulated (no model): " + ", ".join(nl.unmodeled))
+        return "\n".join(lines), False
 
     def execute(self, name, args):
         """Run one tool call. Returns (content, is_error)."""
@@ -280,7 +348,7 @@ class Toolbox:
                 return ("\n".join(hits) if hits else "No footprints found."), False
             if name == "check_circuit":
                 return self.check_circuit(args["code"]), False
-            if name == "simulate":
+            if name in ("simulate", "sweep"):
                 args = dict(args)
                 for key in ("sources", "loads"):
                     value = args.get(key)
@@ -292,7 +360,7 @@ class Toolbox:
                     if value is not None and not isinstance(value, dict):
                         return (f'{key} must be an object such as {{"OUT": 10000}}, '
                                 f"got {str(value)[:100]!r}"), True
-                return self.simulate(args)
+                return self.simulate(args) if name == "simulate" else self.sweep(args)
             return f"Unknown tool {name}", True
         except KeyError as e:
             return f"Not found: {e}", True
@@ -307,6 +375,35 @@ def _validate_input(tool_name, data):
     if schema is None or not isinstance(data, dict):
         return False
     return all(isinstance(data.get(k), str) and data.get(k) for k in schema["required"])
+
+
+STRENGTHENED_NOTE = ("\n\nThe requirements were then stress-tested on this design: scaling "
+                     "single parts by 2 or 0.5 went unnoticed where the description says it "
+                     "matters, so the spec writer strengthened them. This design is no longer "
+                     "accepted; these requirements replace the previous ones and are appended "
+                     "automatically. Call check_circuit again:\n\n{spec}")
+
+
+def _stress_findings(circuit, spec_reqs):
+    """Component changes the frozen requirements do not notice, described for the spec writer."""
+    from .spice import stress, to_netlist
+    if not circuit or not spec_reqs:
+        return []
+    tests = [{"name": r.get("name") or r["measure"], "measure": r["measure"],
+              "analysis": r.get("analysis", "op"), "freq": r.get("freq", 1000),
+              "duration": r.get("duration", 5.0), "sources": r.get("sources") or {},
+              "loads": r.get("loads") or {}, "expect": [float(r["low"]), float(r["high"])]}
+             for r in spec_reqs]
+    nl = to_netlist(circuit)
+    parts = {p["ref"].lower(): p for p in circuit["parts"]}
+    findings = []
+    for elem, factor in stress(nl, tests):
+        part = parts.get(elem[1:])               # SPICE element "rr3" is part R3
+        if part is None:
+            continue
+        nets = " and ".join(sorted({p["net"] for p in part["pins"] if p.get("net")}))
+        findings.append(f"{part['ref']} ({part['value']}, between {nets}) x{factor:g}")
+    return findings
 
 
 CUT_OFF_NOTE = ("Your last reply ran out of space while you were still reasoning. Do not work "
@@ -343,7 +440,7 @@ def generate_circuit(description, workdir, backend=None, max_turns=MAX_TURNS, ma
     circuit the designer submits. `spec_backend` writes the spec (default: the
     designer's model in a separate conversation).
     """
-    from .spec import SpecError, revise_spec, write_spec
+    from .spec import SpecError, revise_spec, strengthen_spec, write_spec
 
     backend = backend or make_backend()
     workdir = Path(workdir)
@@ -356,9 +453,11 @@ def generate_circuit(description, workdir, backend=None, max_turns=MAX_TURNS, ma
     if hasattr(spec_backend, "reasoning_effort") and spec_backend is not backend:
         spec_backend.reasoning_effort = config.SPEC_REASONING_EFFORT or None
     revisions = 0
+    stress_rounds = 0
+    spec_reqs = []
     if spec_first:
         try:
-            _, suffix = write_spec(description, spec_backend, workdir)
+            spec_reqs, suffix = write_spec(description, spec_backend, workdir)
         except SpecError as e:
             return GenerationResult(description=description, code=None, passed=False,
                                     error=f"spec phase failed: {e}")
@@ -414,8 +513,9 @@ def generate_circuit(description, workdir, backend=None, max_turns=MAX_TURNS, ma
             # One round: the spec writer answers the objection, and design continues.
             revisions += 1
             try:
-                _, suffix = revise_spec(description, spec_backend, workdir, suffix,
-                                        disputed.input["requirement"], disputed.input["reason"])
+                spec_reqs, suffix = revise_spec(description, spec_backend, workdir, suffix,
+                                                disputed.input["requirement"],
+                                                disputed.input["reason"])
             except SpecError as e:
                 result.error = f"spec revision failed: {e}"
                 break
@@ -431,6 +531,23 @@ def generate_circuit(description, workdir, backend=None, max_turns=MAX_TURNS, ma
                 content, is_error = json.dumps({"INVALID_JSON": call.raw[:2000]}), True
             else:
                 content, is_error = tools.execute(call.name, call.input)
+                if (call.name == "check_circuit" and spec_first and tools.attempts
+                        and tools.attempts[-1].passed and stress_rounds < MAX_STRESS_ROUNDS):
+                    stress_rounds += 1
+                    findings = _stress_findings(tools.attempts[-1].circuit, spec_reqs)
+                    if findings:
+                        try:
+                            new_reqs, new_suffix = strengthen_spec(
+                                description, spec_backend, workdir, suffix, findings)
+                        except SpecError:
+                            new_suffix = suffix   # keep the requirements we have
+                        if new_suffix.strip() != suffix.strip():
+                            spec_reqs, suffix = new_reqs, new_suffix
+                            tools.suffix = suffix
+                            result.spec_strengthened += 1
+                            for attempt in tools.attempts:   # judged by the old requirements
+                                attempt.passed = False
+                            content += STRENGTHENED_NOTE.format(spec=suffix.strip())
                 key = (call.name, json.dumps(call.input, sort_keys=True))
                 repeats[key] += 1
                 if repeats[key] > 1:

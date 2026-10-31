@@ -94,6 +94,42 @@ class TestLoop:
         assert "made this exact call 2 times" in contents[1] and contents[1].endswith("Lib:FP_1")
         assert "3 times" in contents[2]
 
+    def test_stress_round_strengthens_spec_and_reopens_design(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(generate.Toolbox, "check_circuit", lambda self, code: (
+            self.attempts.append(generate.Attempt(code=code, passed=True, feedback="PASSED.",
+                                                  circuit={"parts": []})) or "PASSED."))
+        monkeypatch.setattr(generate, "_stress_findings",
+                            lambda circuit, reqs: ["C2 (10n, between OUT and X) x2"])
+        seen = []
+        def strengthen(description, backend, workdir, spec_code, findings):
+            seen.append(findings)
+            return [{"measure": "v(OUT)", "low": 1, "high": 1.5}], "\nrequire('v(OUT)', 1.0, 1.5)\n"
+        monkeypatch.setattr(spec, "strengthen_spec", strengthen)
+        spec_writer = ScriptedBackend([say('```python\nrequire("v(OUT)", 1, 2)\n```')])
+        designer = ScriptedBackend([calls(("check_circuit", {"code": "x"})), say("done"),
+                                    calls(("check_circuit", {"code": "y"})), say("done")])
+        result = generate.generate_circuit("Name the nets OUT and GND.", tmp_path,
+                                           backend=designer, spec_first=True,
+                                           spec_backend=spec_writer)
+        assert seen == [["C2 (10n, between OUT and X) x2"]]
+        assert "Call check_circuit again" in designer.tool_results[0][0].content
+        assert result.spec_strengthened == 1
+        # The first pass was judged by the old requirements; only the re-check counts.
+        assert [a.passed for a in result.attempts] == [False, True]
+        assert result.code == "y"
+
+    def test_no_stress_findings_keeps_the_spec(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(generate.Toolbox, "check_circuit", lambda self, code: (
+            self.attempts.append(generate.Attempt(code=code, passed=True, feedback="PASSED.",
+                                                  circuit={"parts": []})) or "PASSED."))
+        monkeypatch.setattr(generate, "_stress_findings", lambda circuit, reqs: [])
+        spec_writer = ScriptedBackend([say('```python\nrequire("v(OUT)", 1, 2)\n```')])
+        designer = ScriptedBackend([calls(("check_circuit", {"code": "x"})), say("done")])
+        result = generate.generate_circuit("Name the nets OUT and GND.", tmp_path,
+                                           backend=designer, spec_first=True,
+                                           spec_backend=spec_writer)
+        assert result.passed and result.spec_strengthened == 0
+
     def test_refusal_stops_without_running_tools(self, tmp_path):
         backend = ScriptedBackend([Turn(text="", stop="refusal")])
         result = generate.generate_circuit("anything", tmp_path, backend=backend)
@@ -157,7 +193,7 @@ class TestLoop:
         system, user, tools = backend.started
         assert "ldo_3v3.py" in system and "a board" in user
         assert {t["name"] for t in tools} == {"search_symbols", "get_symbol", "search_footprints",
-                                              "check_circuit", "simulate",
+                                              "check_circuit", "simulate", "sweep",
                                               "report_spec_problem"}
 
     @needs_skidl
@@ -182,6 +218,17 @@ class TestLoop:
         assert result.summary.startswith("Done")
         assert "AMS1117-3.3" in backend.tool_results[0][0].content
         assert (tmp_path / "transcript.jsonl").exists()
+
+    @needs_skidl
+    def test_sweep_tool(self, tmp_path):
+        tools = generate.Toolbox(tmp_path)
+        code = (EXAMPLES / "ldo_3v3.py").read_text()
+        content, is_error = tools.execute("sweep", {
+            "code": code, "mode": "dc", "measure": "v(+3V3)", "sources": {"VIN": 5},
+            "loads": {"+3V3": 33}, "sweep_net": "VIN", "start": 0, "stop": 6, "points": 7})
+        assert not is_error, content
+        rows = [l.split() for l in content.splitlines()[1:8]]
+        assert float(rows[0][1]) < 0.5 and 3.2 < float(rows[-1][1]) < 3.4
 
     @needs_skidl
     def test_simulate_tool(self, tmp_path):
