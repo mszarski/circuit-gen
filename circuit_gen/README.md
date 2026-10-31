@@ -145,7 +145,20 @@ swapped or a MOSFET fitted backwards) must each fail them
 Results before October 17 used a weaker version: 9 boards had references and
 most boards had a single hidden test, so they may overstate pass rates.
 
-**Current result.** Qwen3.8-27B, spec-first, all 27 boards, 2 samples each,
+**Current result (November 2).** Qwen3.8-27B, spec-first, all 33 boards (27
+standard, 6 hard), 2 samples each, with the sweep tool, the tolerance-corner
+hint and the requirements stress test: **58/66 (88%)**, standard tier 91%,
+hard tier 75% (was 67%), 31/33 boards solved at least once, **2 false
+accepts**. The stress test rewrote the requirements in 22 of 52 rounds. Both
+false accepts are properties no requirement covered, which the stress test
+cannot see when every part change is noticed by something else: a
+Sallen-Key with passband gain 1.19 where the brief says unity gain, and an
+LED bar whose "LED1" net was the comparator output rather than the LED anode
+the brief names. Remaining failures: MFB band-pass (topology), 555 PWM
+(tolerance spread at the corners), and one mic preamp that kept sweeping
+without ever submitting a design.
+
+Before the sweep tool and stress test: Qwen3.8-27B, spec-first, all 27 boards, 2 samples each,
 after the reasoning-budget fixes (November 1): **51/54 (94%)**, 26/27 boards
 solved at least once, 25/27 every time, **0 false accepts**. No spec-writer
 turn hit the token cap (median 2.4k tokens, previously 35-41k); 44 of 572
