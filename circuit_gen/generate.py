@@ -24,6 +24,7 @@ MAX_TURNS = 40
 MAX_TOKEN_RETRIES = 3
 MAX_SPEC_REVISIONS = 1
 MAX_STRESS_ROUNDS = 1    # spec strengthening rounds after a stress test of a passing design
+SUBMIT_AFTER_TURNS = 10  # tool-calling turns without check_circuit before the designer is nudged
 
 SYSTEM_PROMPT = """\
 You are an electronics design engineer. You turn a plain-language description \
@@ -249,6 +250,7 @@ class GenerationResult:
     error: str | None = None
     spec_revisions: int = 0
     spec_strengthened: int = 0      # stress-test rounds that changed the requirements
+    spec_reviewed: bool = False     # the coverage review changed the requirements
 
 
 def _format_symbols(entries):
@@ -377,6 +379,10 @@ def _validate_input(tool_name, data):
     return all(isinstance(data.get(k), str) and data.get(k) for k in schema["required"])
 
 
+SUBMIT_NOTE = ("\n\nNOTE: {n} turns of exploring without check_circuit. Submit your best "
+               "complete design now with check_circuit: it checks every requirement across "
+               "tolerances and tells you exactly what fails, which is faster than probing.")
+
 STRENGTHENED_NOTE = ("\n\nThe requirements were then stress-tested on this design: scaling "
                      "single parts by 2 or 0.5 went unnoticed where the description says it "
                      "matters, so the spec writer strengthened them. This design is no longer "
@@ -432,15 +438,16 @@ satisfy a requirement you believe is wrong.
 
 
 def generate_circuit(description, workdir, backend=None, max_turns=MAX_TURNS, max_nudges=2,
-                     spec_first=False, spec_backend=None):
+                     spec_first=False, spec_backend=None, review_backend=None):
     """Ask the model for a circuit matching `description`. Returns a GenerationResult.
 
     With `spec_first`, a separate model call first writes the requirements from
     the description alone (spec.py); they are frozen and appended to every
     circuit the designer submits. `spec_backend` writes the spec (default: the
-    designer's model in a separate conversation).
+    designer's model in a separate conversation); `review_backend` reviews the
+    spec for coverage (default: the spec writer).
     """
-    from .spec import SpecError, revise_spec, strengthen_spec, write_spec
+    from .spec import SpecError, review_spec, revise_spec, strengthen_spec, write_spec
 
     backend = backend or make_backend()
     workdir = Path(workdir)
@@ -455,12 +462,22 @@ def generate_circuit(description, workdir, backend=None, max_turns=MAX_TURNS, ma
     revisions = 0
     stress_rounds = 0
     spec_reqs = []
+    spec_reviewed = False
+    turns_since_check = 0           # tool-calling turns since the last check_circuit
     if spec_first:
         try:
             spec_reqs, suffix = write_spec(description, spec_backend, workdir)
         except SpecError as e:
             return GenerationResult(description=description, code=None, passed=False,
                                     error=f"spec phase failed: {e}")
+        if config.SPEC_REVIEW:
+            try:
+                reviewed_reqs, reviewed = review_spec(description, review_backend or spec_backend,
+                                                      workdir, suffix)
+                if reviewed.strip() != suffix.strip():
+                    spec_reqs, suffix, spec_reviewed = reviewed_reqs, reviewed, True
+            except SpecError:
+                pass                                 # keep the requirements as written
         user += SPEC_NOTE.format(spec=suffix.strip())
     tools = Toolbox(workdir, suffix=suffix)
     repeats = Counter()  # identical tool calls, to break loops
@@ -523,6 +540,10 @@ def generate_circuit(description, workdir, backend=None, max_turns=MAX_TURNS, ma
             revised_note = ("The spec writer reviewed your objection. These requirements now "
                             "replace the previous ones (unchanged if it disagreed); they are "
                             "fixed and appended automatically:\n\n" + suffix.strip())
+        if any(c.name == "check_circuit" for c in turn.tool_calls):
+            turns_since_check = 0
+        else:
+            turns_since_check += 1
         for call in turn.tool_calls:
             if call is disputed:
                 results.append(ToolResult(id=call.id, content=revised_note))
@@ -553,12 +574,17 @@ def generate_circuit(description, workdir, backend=None, max_turns=MAX_TURNS, ma
                 if repeats[key] > 1:
                     content = REPEAT_NOTE.format(n=repeats[key]) + content
             results.append(ToolResult(id=call.id, content=content, is_error=is_error))
+        if results and turns_since_check and turns_since_check % SUBMIT_AFTER_TURNS == 0:
+            last = results[-1]
+            results[-1] = ToolResult(id=last.id, is_error=last.is_error, content=last.content
+                                     + SUBMIT_NOTE.format(n=turns_since_check))
         backend.add_tool_results(results)
     else:
         result.error = f"stopped after {max_turns} turns"
 
     result.attempts = tools.attempts
     result.spec_revisions = revisions
+    result.spec_reviewed = spec_reviewed
     if hasattr(backend, "export"):
         # The full design conversation, tool results included: training data.
         (workdir / "conversation.json").write_text(json.dumps(

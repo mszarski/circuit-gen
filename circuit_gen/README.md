@@ -94,6 +94,15 @@ export with matching connections. Open the result with KiCad 9.
 
 ## How designs are checked
 
+Before design, the spec writer reviews its requirements against the
+description (`spec_reviewed.py`): every stated property should have a
+requirement whose range would reject a circuit that gets it wrong.
+`--review-model`/`--review-provider` let a different model do this review;
+`CIRCUIT_GEN_SPEC_REVIEW=0` turns it off. After a design first passes, its
+parts are scaled by 2 and 0.5 one at a time and any change no requirement
+notices goes back to the spec writer once (`spec_strengthened.py`).
+
+
 1. **Structural rules** (`checks.py`), on every attempt: footprints exist and
    match the symbol's pins; no net with a single pin; every IC power pin is
    decoupled; every net with an input pin has a DC path to a supply, ground,

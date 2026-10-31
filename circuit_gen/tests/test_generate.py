@@ -130,6 +130,40 @@ class TestLoop:
                                            spec_backend=spec_writer)
         assert result.passed and result.spec_strengthened == 0
 
+    def test_coverage_review_can_extend_the_spec(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(generate.config, "SPEC_REVIEW", True)
+        spec_writer = ScriptedBackend([
+            say('```python\nrequire("v(OUT)", 1, 2)\n```'),
+            say('Gap: the gain is unchecked.\n```python\nrequire("v(OUT)", 1, 2)\n'
+                'require("gain(OUT,IN)", 0.95, 1.05, sources={"IN": "ac"}, analysis="ac")\n```')])
+        designer = ScriptedBackend([say("done"), say("done"), say("done")])
+        result = generate.generate_circuit("Name the nets IN, OUT and GND.", tmp_path,
+                                           backend=designer, spec_first=True,
+                                           spec_backend=spec_writer)
+        assert result.spec_reviewed
+        assert "gain(OUT,IN)" in (tmp_path / "spec_reviewed.py").read_text()
+        assert "Review these requirements" in spec_writer.started[1]
+
+    def test_coverage_review_without_gaps_keeps_the_spec(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(generate.config, "SPEC_REVIEW", True)
+        spec = '```python\nrequire("v(OUT)", 1, 2)\n```'
+        spec_writer = ScriptedBackend([say(spec), say("No gaps.\n" + spec)])
+        designer = ScriptedBackend([say("done"), say("done"), say("done")])
+        result = generate.generate_circuit("Name the nets OUT and GND.", tmp_path,
+                                           backend=designer, spec_first=True,
+                                           spec_backend=spec_writer)
+        assert not result.spec_reviewed
+
+    def test_long_exploration_is_nudged_to_submit(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(generate.library, "search_footprints", lambda q: ["Lib:FP_1"])
+        n = generate.SUBMIT_AFTER_TURNS
+        looks = [calls(("search_footprints", {"query": f"q{i}"})) for i in range(n + 1)]
+        backend = ScriptedBackend(looks + [say("done")] * 3)
+        generate.generate_circuit("anything", tmp_path, backend=backend)
+        contents = [r[0].content for r in backend.tool_results]
+        assert "Submit your best" in contents[n - 1]
+        assert not any("Submit your best" in c for c in contents[:n - 1] + contents[n:])
+
     def test_refusal_stops_without_running_tools(self, tmp_path):
         backend = ScriptedBackend([Turn(text="", stop="refusal")])
         result = generate.generate_circuit("anything", tmp_path, backend=backend)

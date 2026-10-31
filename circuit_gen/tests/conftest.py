@@ -28,3 +28,9 @@ needs_pcbnew = pytest.mark.skipif(not HAS_PCBNEW, reason="KiCad pcbnew module no
 needs_toolchain = pytest.mark.skipif(
     not (HAS_SKIDL and HAS_KICAD_LIBS and HAS_PCBNEW and HAS_FREEROUTING),
     reason="full toolchain (SKiDL, KiCad, FreeRouting) not installed")
+
+
+@pytest.fixture(autouse=True)
+def _no_spec_review(monkeypatch):
+    """Scripted spec writers answer once; tests of the review turn it back on."""
+    monkeypatch.setattr(config, "SPEC_REVIEW", False)

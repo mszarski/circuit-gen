@@ -25,3 +25,6 @@ CLAUDE_MODEL = os.environ.get("CIRCUIT_GEN_CLAUDE_MODEL", "claude-opus-5-5")
 # enumeration; at default effort Qwen3.8-27B often deliberated until it hit the
 # provider's 40,960-token cap and wrote nothing. "" leaves the provider default.
 SPEC_REASONING_EFFORT = os.environ.get("CIRCUIT_GEN_SPEC_EFFORT", "low")
+# After writing the spec, the writer reviews it against the description for
+# stated properties no requirement covers ("0" turns this off).
+SPEC_REVIEW = os.environ.get("CIRCUIT_GEN_SPEC_REVIEW", "1") != "0"

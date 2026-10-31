@@ -84,17 +84,28 @@ def design_and_build(description, out_dir, opts, tests=None):
         spec_extra.update(provider=opts["spec_provider"], base_url="", max_tokens=16384)
     spec_backend = (make_backend(name, model=opts["spec_model"], **spec_extra)
                     if opts.get("spec_model") else None)
+    review_backend = None
+    if opts.get("review_model"):
+        review_extra = dict(extra)
+        if opts.get("review_provider"):
+            review_extra.update(provider=opts["review_provider"], base_url="", max_tokens=16384)
+        if name == "hf":
+            review_extra["reasoning_effort"] = config.SPEC_REASONING_EFFORT or None
+        review_backend = make_backend(name, model=opts["review_model"], **review_extra)
     if name == "hf" and opts.get("thinking") is not None:
         extra["thinking"] = opts["thinking"]
     backend = make_backend(name, model=opts.get("model"), **extra)
     gen = generate_circuit(description, out_dir, backend=backend, max_turns=opts["max_turns"],
-                           spec_first=opts.get("spec_first", False), spec_backend=spec_backend)
+                           spec_first=opts.get("spec_first", False), spec_backend=spec_backend,
+                           review_backend=review_backend)
     (out_dir / "generation.json").write_text(json.dumps({
         "description": description, "backend": backend.name, "model": backend.model,
         "spec_model": spec_backend.model if spec_backend else None,
+        "review_model": review_backend.model if review_backend else None,
         "passed_checks": gen.passed, "turns": gen.turns,
         "attempts": len(gen.attempts), "error": gen.error, "summary": gen.summary,
         "spec_revisions": gen.spec_revisions, "spec_strengthened": gen.spec_strengthened,
+        "spec_reviewed": gen.spec_reviewed,
     }, indent=2))
     print(f"generation: passed_checks={gen.passed} attempts={len(gen.attempts)} "
           f"turns={gen.turns} error={gen.error}")

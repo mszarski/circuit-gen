@@ -275,6 +275,29 @@ bias resistors with wide margins) need nothing. Do not demand more than the \
 description does. If nothing needs to change, reply with the same list."""
 
 
+REVIEW_NOTE = """Review these requirements against the description before any design is \
+made:
+
+{spec}
+
+1. List every property the description states: each number, each named quality \
+(a filter type, "unity", "flat", "rail to rail", "off when floating", ...) and \
+what each named net is.
+2. For each, name the requirement that checks it, and say whether its range \
+would reject a plausible circuit that gets that property wrong. A property \
+with no requirement, or a range wide enough to accept the wrong circuit, is a \
+gap.
+3. Reply with the complete corrected list of require(...) lines in a python \
+block: the same list if there are no gaps. Keep ranges as wide as the \
+description implies; do not demand more than it says."""
+
+
+def review_spec(description, backend, workdir, spec_code, attempts=3):
+    """Ask the spec writer to check its requirements cover everything the description states."""
+    note = REVIEW_NOTE.format(spec=spec_code.strip())
+    return _respec(description, backend, workdir, note, "spec_reviewed.py", attempts)
+
+
 def strengthen_spec(description, backend, workdir, spec_code, findings, attempts=3):
     """Ask the spec writer to cover component changes its requirements missed."""
     note = STRESS_NOTE.format(findings="\n".join(f"- {f}" for f in findings),

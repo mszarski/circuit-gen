@@ -36,6 +36,7 @@ def _opts(args):
     return {"backend": args.backend, "model": args.model, "effort": args.effort,
             "max_turns": args.max_turns, "passes": args.passes, "spec_first": args.spec_first,
             "spec_model": args.spec_model, "spec_provider": args.spec_provider,
+            "review_model": args.review_model, "review_provider": args.review_provider,
             "thinking": False if args.no_thinking else None}
 
 
@@ -181,6 +182,10 @@ def main(argv=None):
         s.add_argument("--spec-provider", default=None,
                        help="hf backend: run the spec model on this Inference Provider (e.g. "
                             "deepinfra), even when CIRCUIT_GEN_HF_BASE_URL points elsewhere")
+        s.add_argument("--review-model", default=None,
+                       help="model that reviews the spec for coverage (default: the spec writer)")
+        s.add_argument("--review-provider", default=None,
+                       help="hf backend: Inference Provider for the review model")
         s.add_argument("--no-thinking", action="store_true",
                        help="hf backend: turn off the designer's thinking mode (Qwen3-style models)")
         s.add_argument("--effort", default="high", choices=["low", "medium", "high", "xhigh", "max"],
