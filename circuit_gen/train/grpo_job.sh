@@ -28,6 +28,8 @@ hf download "$DATASET" --repo-type dataset --include "rl/*" --local-dir . > /dev
 pip install -q -r circuit_gen/requirements.txt
 pip install -q --no-deps skidl==2.3.0 InSpice==1.7.0.7
 export PYTHONPATH=/work RL_DATA=/work/rl BASE_MODEL
+# No CUDA toolkit (nvcc) in this image, so skip FlashInfer's JIT-compiled sampler.
+export VLLM_USE_FLASHINFER_SAMPLER=0
 
 mkdir -p results
 upload() {
