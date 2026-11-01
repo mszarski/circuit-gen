@@ -1,8 +1,11 @@
 #!/bin/bash
-# GRPO on single-shot circuit design inside one Hugging Face Job: installs the
-# toolchain the reward needs (KiCad libraries, SKiDL, ngspice), scores the base
-# model, trains a LoRA with circuit_gen's checks as the reward, scores it again,
-# and uploads the results. Code and RL data come from $DATASET (code/ and rl/).
+# SFT warm-up then GRPO on single-shot circuit design inside one Hugging Face Job:
+# installs the toolchain the reward needs (KiCad libraries, SKiDL, ngspice),
+# scores the base model, imitates the training boards' verified code (merged
+# into a new base), scores that, trains a GRPO LoRA on it with circuit_gen's
+# checks as the reward, scores the result, and uploads everything. Code and RL
+# data come from $DATASET (code/ and rl/). The final model is BASE_MODEL plus
+# OUTPUT_REPO/sft (merged) plus the GRPO adapter at OUTPUT_REPO's root.
 #
 #   hf jobs run --flavor h200 --timeout 4h --secrets HF_TOKEN \
 #       -e DATASET=user/circuit-gen-sft -e OUTPUT_REPO=user/qwen3-8b-circuit-grpo \
@@ -42,11 +45,20 @@ python3 circuit_gen/train/rl_eval.py rl/bench.jsonl results/base_bench.json \
     --model "$BASE_MODEL" | tee -a results/summary.txt
 upload
 
-python3 circuit_gen/train/grpo.py 2>&1 | tee results/train.log | grep -E "reward call|'loss'|Error|done:" || true
+export SFT_DIR=/work/sft_merged
+python3 circuit_gen/train/grpo.py sft 2>&1 | tee results/sft.log | grep -E "'loss'|Error|SFT done" || true
+python3 circuit_gen/train/rl_eval.py rl/eval.jsonl results/sft_eval.json \
+    --model "$SFT_DIR" --limit "$EVAL_LIMIT" | tee -a results/summary.txt
+python3 circuit_gen/train/rl_eval.py rl/bench.jsonl results/sft_bench.json \
+    --model "$SFT_DIR" | tee -a results/summary.txt
+upload
+
+GRPO_BASE="$SFT_DIR" python3 circuit_gen/train/grpo.py grpo 2>&1 | tee results/train.log \
+    | grep -E "reward call|Error|GRPO done" || true
 ADAPTER=$( [ -d /data/grpo/final ] && echo /data/grpo/final || echo grpo/final )
 python3 circuit_gen/train/rl_eval.py rl/eval.jsonl results/tuned_eval.json \
-    --model "$BASE_MODEL" --adapter "$ADAPTER" --limit "$EVAL_LIMIT" | tee -a results/summary.txt
+    --model "$SFT_DIR" --adapter "$ADAPTER" --limit "$EVAL_LIMIT" | tee -a results/summary.txt
 python3 circuit_gen/train/rl_eval.py rl/bench.jsonl results/tuned_bench.json \
-    --model "$BASE_MODEL" --adapter "$ADAPTER" | tee -a results/summary.txt
+    --model "$SFT_DIR" --adapter "$ADAPTER" | tee -a results/summary.txt
 upload
 cat results/summary.txt

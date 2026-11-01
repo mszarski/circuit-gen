@@ -42,6 +42,9 @@ def test_reward_levels(tmp_path):
     assert rl.score(good, tests)[0] == 1.0
     wrong = re.sub(r'R\("[^"]+"\)', 'R("1M")', good, count=1)   # the LED resistor
     assert rl.score(wrong, tests)[0] == 0.4      # runs and passes checks, fails the test
+    stray = good.replace("```python\n", '```python\nPart("Device", "R", value="1k")\n', 1)
+    reward, details = rl.score(stray, tests)
+    assert details["check_errors"] >= 1 and 0.8 < reward < 1.0   # partial structural credit
     assert rl.score("```python\nthis is not python\n```", tests)[0] == 0.0
     assert rl.score("I can't", tests)[0] == 0.0
 
@@ -61,3 +64,7 @@ def test_build_dataset_splits_and_holds_out_the_benchmark(tmp_path):
     train_ids = {json.loads(l)["id"] for l in open(tmp_path / "rl" / "train.jsonl")}
     eval_ids = {json.loads(l)["id"] for l in open(tmp_path / "rl" / "eval.jsonl")}
     assert not train_ids & eval_ids
+    sft = [json.loads(l) for l in open(tmp_path / "rl" / "sft.jsonl")]
+    assert {r["id"] for r in sft} == train_ids
+    assert sft[0]["completion"][0]["content"].startswith("```python")
+    assert "require(" not in sft[0]["completion"][0]["content"]

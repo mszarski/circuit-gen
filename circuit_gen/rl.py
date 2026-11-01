@@ -8,8 +8,9 @@ board's hidden requirement tests, so it can be computed for any completion:
 
     0.0   no code, or the code does not run
     0.2   the code runs (SKiDL builds a netlist)
-    +0.2  ERC and the structural checks pass (connections, bias paths,
-          decoupling, footprints that match their symbols)
+    +0.2  ERC and the structural checks (connections, bias paths, decoupling,
+          footprints that match their symbols), less 0.05 per error, so each
+          mistake fixed earns reward
     +0.6  times the fraction of hidden requirement tests that pass in ngspice
 
 Prompts come from procgen boards (their verified require(...) lines are the
@@ -151,9 +152,10 @@ def score(completion, tests, workdir=None, corners=False):
     details["ran"] = True
     reward = 0.2
     report = check_circuit(run.circuit, requirements=False)
-    if report.ok and not run.erc_errors:
-        details["checks"] = True
-        reward += 0.2
+    errors = len(report.errors) + len(run.erc_errors)
+    details["check_errors"] = errors
+    details["checks"] = errors == 0
+    reward += 0.2 * max(0.0, 1 - 0.25 * errors)
     if tests:
         sim = simulate(run.circuit, tests, corners=corners)
         passed = sum(r.passed for r in sim.results)
@@ -215,6 +217,21 @@ def build_dataset(boards_path, out_dir, eval_fraction=0.1, benchmark=None):
             "prompt": [{"role": "system", "content": system},
                        {"role": "user", "content": f"Design this board:\n\n{b['description']}"}],
             "tests": json.dumps(board_tests(b))} for b in json.loads(Path(benchmark).read_text())]
+    # Imitation data for an SFT warm-up before RL: the verified reference code of
+    # the training boards only (eval boards stay unseen), require() lines removed.
+    train_ids = {r["id"] for r in rows["train"]}
+    rows["sft"] = []
+    for line in open(boards_path):
+        board = json.loads(line)
+        if board["id"] not in train_ids:
+            continue
+        code = "\n".join(l for l in board["code"].splitlines() if not l.startswith("require("))
+        rows["sft"].append({
+            "id": board["id"],
+            "prompt": [{"role": "system", "content": system},
+                       {"role": "user", "content": f"Design this board:\n\n{board['description']}"}],
+            "completion": [{"role": "assistant", "content": f"```python\n{code.strip()}\n```"}],
+            "chat_template_kwargs": {"enable_thinking": False}})
     for name, items in rows.items():
         with open(out_dir / f"{name}.jsonl", "w") as f:
             for r in items:
