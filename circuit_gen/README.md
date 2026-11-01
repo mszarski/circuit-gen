@@ -154,7 +154,22 @@ swapped or a MOSFET fitted backwards) must each fail them
 Results before October 17 used a weaker version: 9 boards had references and
 most boards had a single hidden test, so they may overstate pass rates.
 
-**Current result (November 2).** Qwen3.8-27B, spec-first, all 33 boards (27
+**Spec coverage review and submit nudge (November 3).** All 33 boards, 2
+samples each, Qwen3.8-27B designing:
+
+| configuration | passed | standard | hard | false accepts |
+|---|---|---|---|---|
+| no review (previous run) | 58/66 (88%) | 49/54 | 9/12 | 2 |
+| Qwen reviews its own spec (default) | 60/66 (91%) | 50/54 | 10/12 | 1 |
+| DeepSeek-V4.1-Flash reviews the spec | 61/66 (92%) | 49/54 | 12/12 | 3 |
+
+With 2 samples per board the differences are within noise; the self-review is
+the default because it needs one model and had the fewest false accepts. The
+remaining false accepts are all ranges looser than a stated property (a
+band-pass Q, an LED anode voltage, a mic bias current, a gain on the
+boundary). The submit nudge fired in 8 samples of the DeepSeek run.
+
+**Previous result (November 2).** Qwen3.8-27B, spec-first, all 33 boards (27
 standard, 6 hard), 2 samples each, with the sweep tool, the tolerance-corner
 hint and the requirements stress test: **58/66 (88%)**, standard tier 91%,
 hard tier 75% (was 67%), 31/33 boards solved at least once, **2 false
