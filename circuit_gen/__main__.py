@@ -108,6 +108,43 @@ def cmd_schematic(args):
     return status
 
 
+def cmd_rldata(args):
+    from .rl import build_dataset
+    print(json.dumps(build_dataset(args.boards, args.out, benchmark=args.benchmark), indent=2))
+    return 0
+
+
+def cmd_rleval(args):
+    """Single-shot reward of a model on RL prompts (no tools)."""
+    import random
+    from concurrent.futures import ThreadPoolExecutor
+    from .backends import make_backend
+    from .rl import evaluate
+    rows = [json.loads(l) for l in open(args.prompts)]
+    if args.limit and len(rows) > args.limit:
+        rows = random.Random(0).sample(rows, args.limit)
+
+    def complete(messages):
+        backend = make_backend("hf", model=args.model, max_tokens=args.max_tokens,
+                               reasoning_effort=args.effort,
+                               thinking=False if args.no_thinking else None)
+        backend.messages = [dict(m) for m in messages]
+        backend.tools = []
+        try:
+            return backend.step().text
+        except Exception as e:                          # an API failure scores as no answer
+            return f"(request failed: {type(e).__name__})"
+
+    with ThreadPoolExecutor(max_workers=args.threads) as pool:
+        texts = list(pool.map(complete, [r["prompt"] for r in rows for _ in range(args.samples)]))
+    it = iter(texts)
+    result = evaluate(rows, lambda _: next(it), samples=args.samples, jobs=args.jobs)
+    Path(args.out).write_text(json.dumps({"model": args.model, **result}, indent=1))
+    print(f"{args.model}: mean reward {result['mean_reward']:.3f}, full pass "
+          f"{result['full_pass']:.0%}, code ran {result['ran']:.0%} over {result['samples']} samples")
+    return 0
+
+
 def cmd_compare(args):
     from .evaluate import compare
     print(compare(args.runs))
@@ -162,6 +199,23 @@ def main(argv=None):
                                           "(set CIRCUIT_GEN_CS_PYTHON; see schematic.py)")
     sc.add_argument("runs", nargs="+", help="build or eval sample directories (with circuit.json)")
 
+    rd = sub.add_parser("rldata", help="single-shot RL prompts with hidden tests from procgen boards")
+    rd.add_argument("boards", help="procgen boards.jsonl")
+    rd.add_argument("-o", "--out", required=True)
+    rd.add_argument("--benchmark", default=str(Path(__file__).parent / "benchmarks" / "boards.json"))
+
+    re_ = sub.add_parser("rleval", help="single-shot reward of a model on RL prompts")
+    re_.add_argument("prompts", help="train/eval/bench .jsonl from rldata")
+    re_.add_argument("-o", "--out", required=True, help="results JSON")
+    re_.add_argument("--model", required=True)
+    re_.add_argument("--limit", type=int, default=0)
+    re_.add_argument("--samples", type=int, default=1)
+    re_.add_argument("--threads", type=int, default=8, help="parallel model requests")
+    re_.add_argument("--jobs", type=int, default=4, help="parallel scoring processes")
+    re_.add_argument("--max-tokens", type=int, default=16384)
+    re_.add_argument("--effort", default=None, help="reasoning_effort, e.g. low")
+    re_.add_argument("--no-thinking", action="store_true", help="Qwen3: turn thinking off")
+
     c = sub.add_parser("compare", help="side-by-side pass rates of several eval runs")
     c.add_argument("runs", nargs="+", help="eval output directories")
 
@@ -194,7 +248,8 @@ def main(argv=None):
     args = p.parse_args(argv)
     return {"build": cmd_build, "design": cmd_design, "eval": cmd_eval,
             "compare": cmd_compare, "datagen": cmd_datagen, "export": cmd_export,
-            "procgen": cmd_procgen, "schematic": cmd_schematic}[args.cmd](args)
+            "procgen": cmd_procgen, "schematic": cmd_schematic, "rldata": cmd_rldata,
+            "rleval": cmd_rleval}[args.cmd](args)
 
 
 if __name__ == "__main__":
