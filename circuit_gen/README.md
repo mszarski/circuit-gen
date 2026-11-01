@@ -367,6 +367,36 @@ benchmark boards whose topologies are not among procgen's 20 families
 (usb_c_power, rs485_transceiver, ce_amplifier and the hard tier), so more
 families, not more RL steps, are the next lever.
 
+Third run (`RUN=grpo-v3`, about 4 h on one H200): the same recipe on 31
+families (2,927 training prompts; the 11 new families cover the uncovered
+benchmark boards) with the parts sheet extended to the parts they need
+(USB-C receptacle, MAX485E, 2N3904, LM2596S-3.3/-12). The held-out procgen set
+is a new split that includes the new families, so only the benchmark rows
+compare directly with v2; ngspice also switched to Gear integration between
+the runs.
+
+| | base | SFT | SFT + GRPO |
+|---|---|---|---|
+| held-out procgen: mean reward | 0.20 | 0.81 | **0.84** |
+| held-out procgen: fully correct | 1% | 53% | **60%** |
+| held-out procgen: hidden tests passed | 6% | 70% | **76%** |
+| benchmark boards: mean reward | 0.20 | **0.69** (v2: 0.55) | 0.68 (v2: 0.56) |
+| benchmark boards: fully correct | 2% | **36%** (v2: 26%) | **36%** (v2: 27%) |
+| benchmark boards: hidden tests passed | 8% | **56%** (v2: 40%) | 52% (v2: 44%) |
+| benchmark boards: code runs | 47% | 95% | 97% |
+
+The new families closed most of the gaps they were aimed at (mean reward,
+v2 SFT -> v3 SFT): usb_c_power 0 -> 0.90, rs485_transceiver 0 -> 0.40,
+ce_amplifier 0 -> 0.40, and the hard tier 0.32 -> 0.80 on average
+(pwm_555 and audio_mixer_3ch 1.0, buck_5v 0.78). GRPO again helped the
+held-out procgen boards (+7 points fully correct) but not the benchmark: it
+lifted usb_c_power, rs485_transceiver, buck_5v and button_debounce and gave
+back most of the hard tier's oscillators and mixer (hard-tier average 0.80 ->
+0.60). attiny_blinky fell to 0 and mosfet_switch to 0.35 at the SFT stage.
+With 2 samples a board, single-board moves under about 0.3 are noise. The
+SFT checkpoint (`OUTPUT_REPO/sft`) is the better benchmark model; GRPO on
+the procgen reward overfits that distribution.
+
 ### Fine-tuning Qwen3-8B: no gain
 
 LoRA (r=32) on Qwen3-8B with the sets above, one epoch on an H200, did not
