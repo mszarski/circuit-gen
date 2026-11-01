@@ -493,6 +493,9 @@ def _run_deck(nl, tb, analyses, timeout):
     """Run one ngspice deck; return its combined output (raises TimeoutExpired)."""
     deck = "\n".join(["* circuit_gen", MODELS, *nl.models, *nl.lines, *tb,
                       ".option rshunt=1e10",           # tie nodes left floating by unmodeled parts
+                      # Gear integration: trapezoidal rings on the stiff 555 latch and
+                      # glitches its output when the step is much longer than the latch.
+                      ".option method=gear",
                       ".control", *analyses, ".endc", ".end", ""])
     with tempfile.TemporaryDirectory() as tmp:
         cir = Path(tmp) / "test.cir"

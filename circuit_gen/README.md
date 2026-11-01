@@ -268,12 +268,17 @@ simulated across component tolerances) and exported as chat-format JSONL:
 `sft_direct.jsonl` (description -> circuit code) and `sft_agentic.jsonl`
 (a tool-using design session). Benchmark boards are never used.
 
-- **Programmatic, no LLM** (`procgen.py`): 20 parametric families (LED
+- **Programmatic, no LLM** (`procgen.py`): 31 parametric families (LED
   resistor, divider, RC filters, linear regulators, inverting and
   non-inverting amps, Sallen-Key, 555 astable, zener regulator, MOSFET and
   BJT switches, buffered reference, and since October 31 instrumentation
   amp, MFB band-pass, window comparator, two-stage amp, NAND-gate logic,
-  current mirror, high-side switch, LED bar graph). Values come from the design equations
+  current mirror, high-side switch, LED bar graph; since November 1, for the
+  benchmark boards that had no analogue: USB-C sink, RS-485 transceiver,
+  common-emitter amp, LM2596 buck, Schmitt RC oscillator, 555 PWM, rail
+  splitter, audio mixer, balanced line receiver, alternating blinker,
+  discrete LED current source). Each new family excludes its benchmark
+  board's own parameters. Values come from the design equations
   rounded to E-series; sessions are built from real tool calls. With
   `--repair-fraction`, some sessions start from a planted bug (one R or C off
   by ten) whose real check output is followed by a diagnosis and the fixed

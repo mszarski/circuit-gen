@@ -958,6 +958,594 @@ def led_bar(rng):
     return desc, doc + "\n" + "\n".join(lines) + "\n"
 
 
+# ----------------------------------------------------------------------------
+# Families modelled on the benchmark boards that had no procgen analogue
+# (USB-C sink, RS-485, CE amplifier, buck, Schmitt oscillator, 555 PWM, rail
+# splitter, mixer, balanced receiver, alternating blinker, LED current source).
+# Each excludes the benchmark board's own parameters.
+# ----------------------------------------------------------------------------
+
+USB_C = ('Part("Connector", "USB_C_Receptacle_PowerOnly_6P", '
+         'footprint="Connector_USB:USB_C_Receptacle_GCT_USB4125-xx-x_6P_TopMnt_Horizontal")')
+NPNS = [("2N3904", "Package_TO_SOT_THT:TO-92_Inline"), ("MMBT3904", "Package_TO_SOT_SMD:SOT-23"),
+        ("BC847", "Package_TO_SOT_SMD:SOT-23")]
+
+
+def usb_c_sink(rng):
+    colour = rng.choice(["red", "green", "yellow", "blue"])
+    iled = rng.choice([0.002, 0.003, 0.005, 0.01])
+    ldo = rng.random() < 0.5
+    vf = LED_VF[colour]
+    out_v = 3.3 if ldo else 5.0
+    out_net = "+3V3" if ldo else "VBUS"
+    rled = nearest((out_v - vf) / iled)
+    actual = (out_v - vf) / rled
+    if ldo:
+        desc = phrase(rng, f"USB-C powered 3.3 V supply: a USB-C receptacle with 5.1k pull-downs on both "
+                f"CC pins so a charger turns on 5 V, an AMS1117-3.3 regulator, and a {colour} power LED "
+                f"at about {human(iled, 'A')} on the 3.3 V output, which goes to a 2-pin header. Name "
+                f"the nets VBUS, +3V3, GND, CC1 and CC2.")
+    else:
+        desc = phrase(rng, f"USB-C power input board: a power-only USB-C receptacle with the two 5.1k CC "
+                f"pull-down resistors that make a charger supply 5 V, VBUS and GND on a 2-pin header, "
+                f"and a {colour} power LED running at about {human(iled, 'A')}. Name the nets VBUS, "
+                f"GND, CC1 and CC2.")
+    reg = f'''reg = Part("Regulator_Linear", "AMS1117-3.3", footprint="Package_TO_SOT_SMD:SOT-223-3_TabPin2")
+reg["VI"] += vbus
+reg["GND"] += gnd
+reg["VO"] += out
+vbus & C("10u") & gnd
+out & C("10u") & gnd
+''' if ldo else "vbus & C(\"10u\") & gnd\n"
+    code = f'''"""USB-C sink: 5.1k (Rd) on CC1 and CC2 advertise a sink, so the source enables 5 V on VBUS.
+{"AMS1117-3.3 makes +3V3. " if ldo else ""}Power LED: ({out_v:g} - {vf}) / {human(iled, 'A')} -> {fmt(rled)}."""
+vbus, gnd, cc1, cc2, led_a = Net("VBUS"), Net("GND"), Net("CC1"), Net("CC2"), Net("LED_A")
+{'out = Net("+3V3")' if ldo else "out = vbus"}
+vbus.drive = gnd.drive = POWER
+{PREAMBLE}
+usb = {USB_C}
+usb["A9"] += vbus
+usb["B9"] += vbus
+usb["A12"] += gnd
+usb["B12"] += gnd
+usb["S1"] += gnd
+usb["A5"] += cc1
+usb["B5"] += cc2
+cc1 & R("5.1k", tolerance=0.01) & gnd
+cc2 & R("5.1k", tolerance=0.01) & gnd
+j = {header(2)}
+j[1, 2] += out, gnd
+{reg}led = Part("Device", "LED", value="{colour}", footprint="{LED_FP}")
+out & R("{fmt(rled)}") & led_a
+led_a += led["A"]
+led["K"] += gnd
+{req("i(CC1)", 1 / 5.1e3 * 0.92, 1 / 5.1e3 * 1.08, "CC1 pull-down 5.1k", sources={"VBUS": 5, "CC1": 1})}
+{req("i(CC2)", 1 / 5.1e3 * 0.92, 1 / 5.1e3 * 1.08, "CC2 pull-down 5.1k", sources={"VBUS": 5, "CC2": 1})}
+{req("i(VBUS)", actual * 0.7, actual * 1.35 + 0.0002, f"power LED ~{human(iled, 'A')}", sources={"VBUS": 5})}
+'''
+    if ldo:
+        code += req("v(+3V3)", 3.2, 3.4, "3.3 V at 100 mA", sources={"VBUS": 5}, loads={"+3V3": 33}) + "\n"
+    return desc, code
+
+
+def rs485(rng):
+    while True:
+        rt = rng.choice([100, 120, 150])
+        rb = rng.choice([0, 0, 470, 560, 680, 1000])
+        if (rt, rb) != (120, 0):                            # the benchmark board
+            break
+    desc = (f"RS-485 interface board with a MAX485E transceiver on 5 V, a {rt} ohm bus termination "
+            f"resistor between A and B")
+    if rb:
+        desc += (f", and {rb} ohm fail-safe bias resistors (A pulled up to VCC, B pulled down to GND) "
+                 f"so an idle bus reads as a valid level")
+    desc += (". The UART side (RO, DI, the tied DE and /RE enable, VCC, GND) and the bus side (A, B, "
+             "GND) are on pin headers. Name the nets VCC, GND, A, B, RO, DI and DE_RE.")
+    desc = phrase(rng, desc)
+    bias = f'vcc & R("{rb}", tolerance=0.01) & a\nb & R("{rb}", tolerance=0.01) & gnd\n' if rb else ""
+    code = f'''"""MAX485E half-duplex transceiver at 5 V: {rt} R termination across A-B{f", {rb} R fail-safe bias on A (up) and B (down)" if rb else ""};
+DE and /RE tied so one pin selects transmit or receive; 100n decoupling."""
+vcc, gnd, a, b = Net("VCC"), Net("GND"), Net("A"), Net("B")
+ro, di, dere = Net("RO"), Net("DI"), Net("DE_RE")
+vcc.drive = gnd.drive = POWER
+{PREAMBLE}
+u = Part("Interface_UART", "MAX485E", footprint="{SOIC8}")
+u["VCC"] += vcc
+u["GND"] += gnd
+u["RO"] += ro
+u["DI"] += di
+u[2] += dere
+u["DE"] += dere
+u["A"] += a
+u["B"] += b
+a & R("{rt}", tolerance=0.01) & b
+{bias}vcc & C("100n") & gnd
+j_uart = {header(5)}
+j_bus = {header(3)}
+j_uart[1, 2, 3, 4, 5] += ro, di, dere, vcc, gnd
+j_bus[1, 2, 3] += a, b, gnd
+'''
+    if rb:
+        va = 5 * (rb + rt) / (2 * rb + rt)
+        vb = 5 * rb / (2 * rb + rt)
+        code += req("v(A)", va * 0.97, va * 1.03, f"idle A at {va:.3g} V", sources={"VCC": 5}) + "\n"
+        code += req("v(B)", vb * 0.97, vb * 1.03, f"idle B at {vb:.3g} V", sources={"VCC": 5}) + "\n"
+    else:
+        code += req("i(A)", 0.97 / rt, 1.03 / rt, f"{rt} ohm termination", sources={"A": 1, "B": 0}) + "\n"
+        code += req("i(B)", 0.97 / rt, 1.03 / rt, f"{rt} ohm termination, B side", sources={"A": 0, "B": 1}) + "\n"
+    return desc, code
+
+
+def ce_amplifier(rng):
+    while True:
+        vcc = rng.choice([5, 9, 12, 15])
+        gain = rng.choice([5, 8, 10, 15, 20, 30])
+        ic = rng.choice([0.0005, 0.001, 0.002])
+        ve = max(0.6, 0.12 * vcc)
+        vc = ve + 0.2 + (vcc - ve - 0.2) / 2
+        rc = nearest((vcc - vc) / ic)
+        rload = rc * 1e4 / (rc + 1e4)
+        re1 = (rload / gain) - 0.026 / ic
+        if (vcc, gain) != (9, 20) and re1 >= 22:
+            break
+    re1 = nearest(re1)
+    re2 = nearest(max(ve / ic - re1, 10))
+    vb = ve + 0.65
+    idiv = ic / 10
+    r2 = nearest(vb / idiv)
+    r1 = nearest((vcc - vb) / (idiv * 1.1))
+    actual = rload / (re1 + 0.026 / ic)
+    sym, fp = rng.choice(NPNS)
+    desc = phrase(rng, f"Common-emitter amplifier with one NPN transistor on a {vcc:g} V supply, voltage "
+            f"gain about {gain} from 100 Hz to 10 kHz into a 10k load, with divider bias and a partly "
+            f"bypassed emitter resistor so the gain is set by resistors rather than beta, and coupling "
+            f"capacitors at the input and output. Name the nets VCC, GND, IN and OUT.")
+    tests = "\n".join(req("gain(OUT,IN)", actual * 0.7, actual * 1.35, f"gain ~{gain} at {human(f, 'Hz')}",
+                          sources={"VCC": vcc, "IN": "ac"}, loads={"OUT": 10000}, analysis="ac",
+                          freq=float(f)) for f in (100, 1000, 10000))
+    code = f'''"""CE amplifier on {vcc:g} V: Ic ~ {human(ic, 'A')}, Ve ~ {ve:.2g} V, Vc ~ {vc:.3g} V.
+Gain ~ (Rc || 10k) / (re + Re1) = {rload:.0f} / ({0.026 / ic:.0f} + {fmt(re1)}) = {actual:.3g};
+Re2 = {fmt(re2)} is bypassed by 100u. Bias divider {fmt(r1)} / {fmt(r2)} sets Vb ~ {vb:.2g} V."""
+vcc, gnd, inp, out = Net("VCC"), Net("GND"), Net("IN"), Net("OUT")
+base, col, em, em2 = Net("BASE"), Net("COL"), Net("EM"), Net("EM2")
+vcc.drive = gnd.drive = POWER
+{PREAMBLE}
+j_pwr = {header(2)}
+j_in = {header(2)}
+j_out = {header(2)}
+j_pwr[1, 2] += vcc, gnd
+j_in[1, 2] += inp, gnd
+j_out[1, 2] += out, gnd
+q = Part("Transistor_BJT", "{sym}", footprint="{fp}")
+vcc & R("{fmt(r1)}") & base & R("{fmt(r2)}") & gnd
+vcc & R("{fmt(rc)}") & col
+q["B"] += base
+q["C"] += col
+q["E"] += em
+em & R("{fmt(re1)}") & em2 & R("{fmt(re2)}") & gnd
+em2 & C("100u") & gnd
+inp & C("10u") & base
+col & C("10u") & out
+vcc & C("100n") & gnd
+{tests}
+'''
+    return desc, code
+
+
+def buck_regulator(rng):
+    while True:
+        vout = rng.choice([3.3, 5.0, 12.0])
+        iout = rng.choice([0.5, 1.0, 1.5, 2.0])
+        vlo = rng.choice([v for v in (7, 9, 12, 15, 18) if v >= vout + 4])
+        vhi = rng.choice([v for v in (12, 15, 18, 20, 24) if v > vlo])   # the model is less exact above 24 V
+        if (vout, iout, vlo, vhi) != (5.0, 1.0, 12, 24):    # the benchmark board
+            break
+    lval = 33e-6 if vout < 10 else 47e-6
+    dmin = (vout + 0.4) / (vhi + 0.4)
+    ripple_i = (vhi - vout) * dmin / (lval * 150e3)
+    for bigger in (47e-6, 68e-6, 100e-6):                   # keep well in continuous conduction,
+        if ripple_i <= 0.6 * iout:                          # where the simulation model is valid
+            break
+        lval = max(lval, bigger)
+        ripple_i = (vhi - vout) * dmin / (lval * 150e3)
+    cout = rng.choice([220e-6, 330e-6, 470e-6])
+    name = {3.3: "LM2596S-3.3", 5.0: "LM2596S-5", 12.0: "LM2596S-12"}[vout]
+    net = {3.3: "+3V3", 5.0: "+5V", 12.0: "+12V"}[vout]
+    rload = round(vout / iout, 3)
+    ripple = max(0.05, 0.02 * vout)
+    ideal = vout * iout / vlo
+    desc = phrase(rng, f"Buck converter that makes {vout:g} V at up to {human(iout, 'A')} from a {vlo:g} V "
+            f"to {vhi:g} V input, built around an {name} fixed-output switching regulator with its "
+            f"inductor, Schottky catch diode and input and output capacitors. Output ripple below "
+            f"{human(ripple, 'V')} peak to peak and efficiency above 75%. Input and output on 2-pin "
+            f"headers. Name the nets VIN, {net} and GND.")
+    tran = dict(analysis="tran", duration=0.01)
+    load = {net: rload}
+    code = f'''"""{name} buck, {vlo:g}-{vhi:g} V in, {vout:g} V / {human(iout, 'A')} out: {fmt(lval)}H inductor
+(ripple ~{ripple_i:.2f} A at {vhi:g} V in), SS34 Schottky catch diode, 680u input and {fmt(cout)}F output
+capacitors, FB to the output, ON/OFF grounded (always on)."""
+vin, vout, gnd, sw = Net("VIN"), Net("{net}"), Net("GND"), Net("SW")
+vin.drive = gnd.drive = POWER
+{PREAMBLE}
+j_in = {header(2)}
+j_out = {header(2)}
+j_in[1, 2] += vin, gnd
+j_out[1, 2] += vout, gnd
+u = Part("Regulator_Switching", "{name}", footprint="Package_TO_SOT_SMD:TO-263-5_TabPin3")
+u["VIN"] += vin
+u["GND"] += gnd
+u["OUT"] += sw
+u["FB"] += vout
+u[5] += gnd
+cin = Part("Device", "C_Polarized", value="680u", footprint="Capacitor_SMD:CP_Elec_10x10.5")
+cin[1] += vin
+cin[2] += gnd
+vin & C("100n") & gnd
+d = Part("Diode", "SS34", footprint="Diode_SMD:D_SMA")
+d["K"] += sw
+d["A"] += gnd
+l = Part("Device", "L", value="{fmt(lval)}", footprint="Inductor_SMD:L_12x12mm_H8mm")
+l[1] += sw
+l[2] += vout
+cout = Part("Device", "C_Polarized", value="{fmt(cout)}", footprint="Capacitor_SMD:CP_Elec_10x10.5")
+cout[1] += vout
+cout[2] += gnd
+{req(f"avg({net})", vout * 0.95, vout * 1.05, f"{vout:g} V at {human(iout, 'A')} from {vlo:g} V", sources={"VIN": vlo}, loads=load, **tran)}
+{req(f"avg({net})", vout * 0.95, vout * 1.05, f"{vout:g} V at {human(iout, 'A')} from {vhi:g} V", sources={"VIN": vhi}, loads=load, **tran)}
+{req(f"ripple({net})", 0, ripple, f"ripple < {human(ripple, 'V')}", sources={"VIN": vlo}, loads=load, **tran)}
+{req("iavg(VIN)", ideal * 0.85, ideal / 0.75, f"efficient at {vlo:g} V in", sources={"VIN": vlo}, loads=load, **tran)}
+'''
+    return desc, code
+
+
+def schmitt_oscillator(rng):
+    while True:
+        f = rng.choice([100, 200, 300, 500, 2000, 3000, 5000, 10000, 20000, 50000])
+        vcc = rng.choice([3.3, 5])
+        if (f, vcc) != (1000, 5):
+            break
+    c = nearest(1 / (0.91 * f * 22e3), E6)                  # aims R near 22k
+    r = nearest(1 / (0.91 * f * c))
+    actual = 1 / (0.91 * r * c)
+    tie = rng.choice(["GND", "VCC"])
+    desc = phrase(rng, f"RC relaxation oscillator at about {human(f, 'Hz')} from a 74HC14 Schmitt-trigger "
+            f"inverter with one resistor and one capacitor, on {vcc:g} V, with another inverter of the "
+            f"same package buffering the square-wave output OUT and the unused inputs tied to {tie}. "
+            f"Name the nets VCC, GND and OUT.")
+    tran = dict(analysis="tran", duration=round(20 / f, 7))
+    code = f'''"""74HC14 RC oscillator: feedback R = {fmt(r)} and C = {fmt(c)}F to GND; thresholds ~0.55 and
+0.33 Vcc give f ~ 1 / (0.91 R C) = {human(actual, 'Hz')}. A second inverter buffers OUT."""
+vcc, gnd, out, a, y = Net("VCC"), Net("GND"), Net("OUT"), Net("A"), Net("Y")
+vcc.drive = gnd.drive = POWER
+{PREAMBLE}
+j_pwr = {header(2)}
+j_out = {header(2)}
+j_pwr[1, 2] += vcc, gnd
+j_out[1, 2] += out, gnd
+u = Part("74xx", "74HC14", footprint="Package_SO:SOIC-14_3.9x8.7mm_P1.27mm")
+u["VCC"] += vcc
+u["GND"] += gnd
+vcc & C("100n") & gnd
+u[1] += a
+u[2] += y
+y & R("{fmt(r)}", tolerance=0.01) & a
+a & C("{fmt(c)}", tolerance=0.05) & gnd
+u[3] += y
+u[4] += out
+for pin in (5, 9, 11, 13):
+    u[pin] += {tie.lower()}
+{req("freq(OUT)", actual * 0.75, actual * 1.3, f"~{human(f, 'Hz')}", sources={"VCC": vcc}, **tran)}
+{req("duty(OUT)", 0.3, 0.7, "duty near 50%", sources={"VCC": vcc}, **tran)}
+{req("ripple(OUT)", vcc * 0.9, vcc + 0.1, "full swing", sources={"VCC": vcc}, **tran)}
+'''
+    return desc, code
+
+
+def pwm_555(rng):
+    while True:
+        f = rng.choice([100, 200, 300, 500, 1000, 1500, 2000])
+        duty = rng.choice([0.2, 0.25, 0.3, 0.4, 0.6, 0.7, 0.75])
+        vcc = rng.choice([5, 9, 12])
+        if (f, duty) != (1000, 0.25):                       # the benchmark board
+            break
+    period = 1 / f
+    # Charging through RA and the diode heads for Vcc - Vd (~0.45 V at these currents) rather than Vcc, so the
+    # high time stretches: t_high = RA C ln((2Vcc/3 - Vd) / (Vcc/3 - Vd)).
+    k_high = math.log((vcc * 2 / 3 - 0.45) / (vcc / 3 - 0.45))
+    c = nearest(period / (0.693 * 40e3), E6)                # aims RA + RB near 40k
+    ra = nearest(duty * period / (k_high * c))
+    rb = nearest((1 - duty) * period / (0.693 * c))
+    th, tl = k_high * ra * c, 0.693 * rb * c
+    actual_f, actual_d = 1 / (th + tl), th / (th + tl)
+    desc = phrase(rng, f"PWM signal generator using a 555 timer on {vcc:g} V at about {human(f, 'Hz')} "
+            f"with a duty cycle of about {duty:.0%} (output high {duty:.0%} of the time); a diode "
+            f"steers the charge current through one resistor and the discharge through another so "
+            f"the duty cycle is set independently. Output OUT on a header. Name the nets VCC, GND "
+            f"and OUT.")
+    tran = dict(analysis="tran", duration=round(20 / f, 7))
+    code = f'''"""555 PWM: diode from DIS to THR so C charges through RA only and discharges through RB only:
+t_high ~ {k_high:.3f} RA C = {th * 1e6:.4g} us, t_low ~ 0.693 RB C = {tl * 1e6:.4g} us with RA = {fmt(ra)}, RB = {fmt(rb)},
+C = {fmt(c)}F: f ~ {human(actual_f, 'Hz')}, duty ~ {actual_d:.0%} ({k_high:.3f} = ln((2/3 Vcc - 0.45) / (1/3 Vcc - 0.45)) for the diode drop)."""
+vcc, gnd, out, dis, thr, cv = Net("VCC"), Net("GND"), Net("OUT"), Net("DIS"), Net("THR"), Net("CV")
+vcc.drive = gnd.drive = POWER
+{PREAMBLE}
+j_pwr = {header(2)}
+j_out = {header(2)}
+j_pwr[1, 2] += vcc, gnd
+j_out[1, 2] += out, gnd
+t = Part("Timer", "NE555D", footprint="{SOIC8}")
+t["VCC"] += vcc
+t["R"] += vcc
+t["GND"] += gnd
+t["DIS"] += dis
+t["THR"] += thr
+t["TR"] += thr
+t["CV"] += cv
+t["Q"] += out
+vcc & R("{fmt(ra)}", tolerance=0.01) & dis & R("{fmt(rb)}", tolerance=0.01) & thr
+d = Part("Diode", "1N4148W", footprint="Diode_SMD:D_SOD-123")
+d["A"] += dis
+d["K"] += thr
+thr & C("{fmt(c)}", tolerance=0.05) & gnd
+cv & C("10n") & gnd
+vcc & C("100n") & gnd
+{req("freq(OUT)", f * 0.75, f * 1.3, f"~{human(f, 'Hz')}", sources={"VCC": vcc}, **tran)}
+{req("duty(OUT)", duty - 0.1, duty + 0.1, f"duty ~{duty:.0%}", sources={"VCC": vcc}, **tran)}
+'''
+    return desc, code
+
+
+def rail_splitter(rng):
+    while True:
+        vbat = rng.choice([9, 12, 15, 18, 24])
+        iload = rng.choice([0.005, 0.01, 0.02])
+        if (vbat, iload) != (9, 0.01):                      # the benchmark board
+            break
+    half = vbat / 2
+    tol = max(0.1, 0.02 * half)
+    rl = round(half / iload, 1)
+    desc = phrase(rng, f"Rail splitter that makes a virtual ground VMID at half of a {vbat:g} V supply: an "
+            f"op-amp follower buffers a resistor divider so VMID stays within {tol:.2g} V of {half:g} V "
+            f"while sourcing or sinking {human(iload, 'A')}, with decoupling. Supply and VMID on a "
+            f"header. Name the nets VBAT, GND and VMID.")
+    code = f'''"""Rail splitter on {vbat:g} V: 10k/10k divider (1%) filtered by 1u, TL072 follower drives VMID
+(feedback taken at VMID), 10u on VMID; the unused section follows the divider."""
+vbat, gnd, vmid, div = Net("VBAT"), Net("GND"), Net("VMID"), Net("DIV")
+vbat.drive = gnd.drive = POWER
+{PREAMBLE}
+j = {header(3)}
+j[1, 2, 3] += vbat, vmid, gnd
+u = Part("Amplifier_Operational", "TL072", footprint="{SOIC8}")
+u["V+"] += vbat
+u["V-"] += gnd
+vbat & C("100n") & gnd
+vbat & R("10k", tolerance=0.01) & div & R("10k", tolerance=0.01) & gnd
+div & C("1u") & gnd
+u[3] += div
+u[2] += vmid
+u[1] += vmid
+vmid & C("10u") & gnd
+u[5] += div
+u[6] += u[7]
+{req("v(VMID)", half - tol, half + tol, f"{half:g} V unloaded", sources={"VBAT": vbat})}
+{req("v(VMID)", half - tol, half + tol, f"{half:g} V sourcing {human(iload, 'A')}", sources={"VBAT": vbat}, loads={"VMID": rl})}
+{req("v(VMID)", half - tol, half + tol, f"{half:g} V sinking {human(iload, 'A')}", sources={"VBAT": vbat}, loads={"VMID": {"to": "VBAT", "r": rl}})}
+{req("i(VBAT)", iload * 0.9, iload + 0.006, f"supply current while sourcing {human(iload, 'A')}", sources={"VBAT": vbat}, loads={"VMID": rl})}
+'''
+    return desc, code
+
+
+def audio_mixer(rng):
+    while True:
+        n = rng.choice([2, 3, 4])
+        gain = rng.choice([0.5, 1, 2, 3])
+        vcc = rng.choice([9, 12, 15])
+        if (n, gain, vcc) != (3, 1, 9):                     # the benchmark board
+            break
+    rf = 10e3 * gain if gain >= 1 else 10e3
+    rin = 10e3 if gain >= 1 else 20e3
+    actual = rf / rin
+    ins = [f"IN{k + 1}" for k in range(n)]
+    freqs = [100, 1000, 10000, 1000]
+    tests = []
+    for k, name in enumerate(ins):
+        srcs = {"VCC": vcc, **{o: ("ac" if o == name else 0) for o in ins}}
+        tests.append(req(f"gain(OUT,{name})", actual * 0.85, actual * 1.15,
+                         f"{name} gain ~{gain:g} at {human(freqs[k], 'Hz')}", sources=srcs,
+                         loads={"OUT": 10000}, analysis="ac", freq=float(freqs[k])))
+    in_lines = "\n".join(f'ins[{k}] & C("10u") & Net("C{k + 1}") & R("{fmt(rin)}", tolerance=0.01) & inv'
+                         for k in range(n))
+    desc = phrase(rng, f"{n}-channel audio mixer on a single {vcc:g} V supply: an inverting op-amp summing "
+            f"amplifier gives each input ({', '.join(ins)}) a gain of about -{gain:g} from 100 Hz to "
+            f"10 kHz, with AC coupling at the inputs and output, a mid-supply bias for the op-amp, and "
+            f"enough drive for a 10k load. Name the nets VCC, GND, {', '.join(ins)} and OUT.")
+    code = f'''"""{n}-input inverting summer on {vcc:g} V: each input through 10u and {fmt(rin)} into the inverting
+node, {fmt(rf)} feedback (gain -{actual:g} per input); the non-inverting input sits at a 10k/10k
+mid-supply reference with 10u; output coupled through 10u."""
+vcc, gnd, out, ref, inv, oa = Net("VCC"), Net("GND"), Net("OUT"), Net("REF"), Net("INV"), Net("OA")
+ins = [{", ".join(f'Net("{x}")' for x in ins)}]
+vcc.drive = gnd.drive = POWER
+{PREAMBLE}
+j_pwr = {header(2)}
+j_in = {header(n + 1)}
+j_out = {header(2)}
+j_pwr[1, 2] += vcc, gnd
+j_in[{", ".join(str(k + 1) for k in range(n + 1))}] += (*ins, gnd)
+j_out[1, 2] += out, gnd
+u = Part("Amplifier_Operational", "TL072", footprint="{SOIC8}")
+u["V+"] += vcc
+u["V-"] += gnd
+vcc & C("100n") & gnd
+vcc & R("10k") & ref & R("10k") & gnd
+ref & C("10u") & gnd
+{in_lines}
+inv & R("{fmt(rf)}", tolerance=0.01) & oa
+u[2] += inv
+u[3] += ref
+u[1] += oa
+oa & C("10u") & out
+u[5] += ref         # unused section as a follower of REF
+u[6] += u[7]
+''' + "\n".join(tests) + "\n"
+    return desc, code
+
+
+def line_receiver(rng):
+    while True:
+        gain = rng.choice([1, 2, 5])
+        fc = rng.choice([10e3, 15e3, 20e3, 30e3, 50e3])
+        v, sup = _supplies_pm(rng)
+        if (gain, fc, v) != (1, 20e3, 12):                  # the benchmark board
+            break
+    rd = 10e3
+    c2 = nearest(1 / (2 * math.pi * fc * 5e3 * math.sqrt(2.2)), E6)   # aims R near 5k
+    c1 = c2 * 2.2
+    r = nearest(1 / (2 * math.pi * fc * c2 * math.sqrt(2.2)))
+    actual_fc = 1 / (2 * math.pi * r * c2 * math.sqrt(2.2))
+    flat = fc / 4
+    q = math.sqrt(2.2) / 2
+    roll = lambda f: 1 / math.sqrt((1 - (f / actual_fc) ** 2) ** 2 + (f / actual_fc / q) ** 2)
+    desc = phrase(rng, f"Balanced line input stage on +/-{v} V: an op-amp difference amplifier with a "
+            f"differential gain of {gain} using 0.1% resistors for good common-mode rejection, "
+            f"followed by a unity-gain second-order low-pass filter at about {human(fc, 'Hz')}, so "
+            f"OUT = {'' if gain == 1 else f'{gain} x '}(IN_P - IN_N) in the audio band. Inputs, output and "
+            f"power on pin headers. Name the nets VPOS, VNEG, GND, IN_P, IN_N and OUT.")
+    srcs = {**sup, "IN_P": "ac", "IN_N": 0}
+    code = f'''"""Balanced receiver on +/-{v} V: difference amplifier, gain {fmt(rd * gain)}/{fmt(rd)} = {gain} (0.1% resistors),
+then a unity-gain Sallen-Key low-pass: R = {fmt(r)}, C1 = {fmt(c1)}F (feedback), C2 = {fmt(c2)}F to GND,
+fc = 1/(2 pi R sqrt(C1 C2)) = {human(actual_fc, 'Hz')}, Q = {q:.2f}."""
+vpos, vneg, gnd = Net("VPOS"), Net("VNEG"), Net("GND")
+inp, inn, out = Net("IN_P"), Net("IN_N"), Net("OUT")
+ni, inv, d, m, x = Net("NI"), Net("INV"), Net("D"), Net("M"), Net("X")
+vpos.drive = vneg.drive = gnd.drive = POWER
+{PREAMBLE}
+j_pwr = {header(3)}
+j_in = {header(3)}
+j_out = {header(2)}
+j_pwr[1, 2, 3] += vpos, gnd, vneg
+j_in[1, 2, 3] += inp, inn, gnd
+j_out[1, 2] += out, gnd
+u = Part("Amplifier_Operational", "TL072", footprint="{SOIC8}")
+u["V+"] += vpos
+u["V-"] += vneg
+vpos & C("100n") & gnd
+vneg & C("100n") & gnd
+inn & R("{fmt(rd)}", tolerance=0.001) & inv & R("{fmt(rd * gain)}", tolerance=0.001) & d
+inp & R("{fmt(rd)}", tolerance=0.001) & ni & R("{fmt(rd * gain)}", tolerance=0.001) & gnd
+u[2] += inv
+u[3] += ni
+u[1] += d
+d & R("{fmt(r)}", tolerance=0.01) & m & R("{fmt(r)}", tolerance=0.01) & x
+m & C("{fmt(c1)}", tolerance=0.05) & out
+x & C("{fmt(c2)}", tolerance=0.05) & gnd
+u[5] += x
+u[6] += out
+u[7] += out
+{req("gain(OUT,IN_P)", gain * 0.9, gain * 1.1, f"differential gain {gain} at 1 kHz", sources=srcs, analysis="ac", freq=1000.0)}
+{req("gain(OUT,IN_P)", 0, 0.01 * gain, "common-mode rejection > 40 dB", sources={**sup, "IN_P": "ac", "IN_N": "ac"}, analysis="ac", freq=1000.0)}
+{req("gain(OUT,IN_P)", gain * roll(flat) * 0.88, gain * roll(flat) * 1.12, f"flat at {human(flat, 'Hz')}", sources=srcs, analysis="ac", freq=float(flat))}
+{req("gain(OUT,IN_P)", 0, gain * max(0.1, roll(fc * 5) * 1.6), f"rejects {human(fc * 5, 'Hz')}", sources=srcs, analysis="ac", freq=float(fc * 5))}
+'''
+    return desc, code
+
+
+def alternating_blinker(rng):
+    while True:
+        f = rng.choice([0.5, 0.7, 1.5, 2, 3, 5])
+        vcc = rng.choice([5, 9, 12])
+        if (f, vcc) != (1, 5):
+            break
+    c = rng.choice([4.7e-6, 10e-6, 22e-6])
+    total = 1.44 / (f * c)
+    ra = nearest(total * 0.07)
+    rb = nearest((total - ra) / 2)
+    actual = 1.44 / ((ra + 2 * rb) * c)
+    c1, c2 = rng.sample(["red", "green", "yellow", "blue"], 2)
+    iled = 0.01
+    r1 = nearest((vcc - 1.5 - LED_VF[c1]) / iled)
+    r2 = nearest((vcc - LED_VF[c2]) / iled)
+    desc = phrase(rng, f"Two LEDs, one {c1} and one {c2}, that flash alternately at about {f:g} Hz, "
+            f"driven by a 555 astable on a {vcc:g} V supply: the {c1} LED lights while the output is "
+            f"high and the {c2} one while it is low. Power on a 2-pin header. Name the supply nets VCC "
+            f"and GND, and the 555 output net OUT.")
+    code = f'''"""555 astable: f = 1.44 / ((Ra + 2 Rb) C) = 1.44 / (({fmt(ra)} + 2 * {fmt(rb)}) * {fmt(c)}F) = {actual:.3g} Hz.
+{c1} LED from OUT to GND (lit when high) through {fmt(r1)}; {c2} LED from VCC into OUT (lit when low) through {fmt(r2)}."""
+vcc, gnd, out, dis, thr, cv = Net("VCC"), Net("GND"), Net("OUT"), Net("DIS"), Net("THR"), Net("CV")
+a1, k2 = Net("LED1_A"), Net("LED2_K")
+vcc.drive = gnd.drive = POWER
+{PREAMBLE}
+j = {header(2)}
+j[1, 2] += vcc, gnd
+t = Part("Timer", "NE555D", footprint="{SOIC8}")
+t["VCC"] += vcc
+t["R"] += vcc
+t["GND"] += gnd
+t["DIS"] += dis
+t["THR"] += thr
+t["TR"] += thr
+t["CV"] += cv
+t["Q"] += out
+vcc & R("{fmt(ra)}") & dis & R("{fmt(rb)}") & thr
+thr & C("{fmt(c)}") & gnd
+cv & C("10n") & gnd
+vcc & C("100n") & gnd
+l1 = Part("Device", "LED", value="{c1}", footprint="{LED_FP}")
+l2 = Part("Device", "LED", value="{c2}", footprint="{LED_FP}")
+out & R("{fmt(r1)}") & a1
+a1 += l1["A"]
+l1["K"] += gnd
+vcc += l2["A"]
+l2["K"] += k2
+k2 & R("{fmt(r2)}") & out
+{req("freq(OUT)", actual * 0.75, actual * 1.35, f"~{f:g} Hz", sources={"VCC": vcc}, analysis="tran", duration=round(6 / f, 4))}
+{req("i(VCC)", 0.001, 0.06, "supply current limited", sources={"VCC": vcc})}
+'''
+    return desc, code
+
+
+def led_current_source(rng):
+    while True:
+        i = rng.choice([0.005, 0.01, 0.015, 0.02, 0.03])
+        colour = rng.choice(list(LED_VF))
+        vlo = rng.choice([5, 6, 9, 12])
+        vhi = rng.choice([v for v in (12, 15, 18, 24) if v > vlo])
+        if vlo > LED_VF[colour] + 1.6 and (i, colour, vlo, vhi) != (0.02, "white", 9, 15):
+            break
+    rs = nearest(0.65 / i)
+    rbias = nearest((vlo - 1.4) / (i / 20))          # base drive ~I/20 at the lowest supply
+    total = lambda v: 0.65 / rs + (v - 1.3) / rbias  # LED current plus the bias current
+    sym, fp = rng.choice(NPNS)
+    desc = phrase(rng, f"Discrete constant-current LED driver that holds a {colour} LED at about "
+            f"{human(i, 'A')} for any supply from {vlo:g} V to {vhi:g} V, using two NPN transistors and "
+            f"a current-sense resistor rather than a regulator IC. Supply on a 2-pin header. Name the "
+            f"nets VIN and GND.")
+    code = f'''"""Two-NPN current sink: Q2 senses Vbe across Rs and steals Q1's base drive, so
+I_LED ~ 0.65 V / {fmt(rs)} = {human(0.65 / rs, 'A')} whatever VIN; {fmt(rbias)} biases Q1's base."""
+vin, gnd, k, b1, e1 = Net("VIN"), Net("GND"), Net("LED_K"), Net("B1"), Net("E1")
+vin.drive = gnd.drive = POWER
+{PREAMBLE}
+j = {header(2)}
+j[1, 2] += vin, gnd
+led = Part("Device", "LED", value="{colour}", footprint="{LED_FP}")
+q1 = Part("Transistor_BJT", "{sym}", footprint="{fp}")
+q2 = Part("Transistor_BJT", "{sym}", footprint="{fp}")
+vin += led["A"]
+led["K"] += k
+q1["C"] += k
+q1["B"] += b1
+q1["E"] += e1
+vin & R("{fmt(rbias)}") & b1
+q2["C"] += b1
+q2["B"] += e1
+q2["E"] += gnd
+e1 & R("{fmt(rs)}", tolerance=0.01) & gnd
+vin & C("100n") & gnd
+{req("i(VIN)", total(vlo) * 0.85, total(vlo) * 1.25, f"~{human(i, 'A')} at {vlo:g} V", sources={"VIN": vlo})}
+{req("i(VIN)", total(vhi) * 0.85, total(vhi) * 1.25, f"~{human(i, 'A')} at {vhi:g} V", sources={"VIN": vhi})}
+'''
+    return desc, code
+
+
 FAMILIES = {
     "led_resistor": led_resistor,
     "voltage_divider": voltage_divider,
@@ -979,6 +1567,17 @@ FAMILIES = {
     "current_mirror": current_mirror,
     "high_side_switch": high_side_switch,
     "led_bar": led_bar,
+    "usb_c_sink": usb_c_sink,
+    "rs485": rs485,
+    "ce_amplifier": ce_amplifier,
+    "buck_regulator": buck_regulator,
+    "schmitt_oscillator": schmitt_oscillator,
+    "pwm_555": pwm_555,
+    "rail_splitter": rail_splitter,
+    "audio_mixer": audio_mixer,
+    "line_receiver": line_receiver,
+    "alternating_blinker": alternating_blinker,
+    "led_current_source": led_current_source,
 }
 
 

@@ -41,6 +41,9 @@ PARTS = [
     ("Connector", "Conn_01x02_Pin", "Connector_PinHeader_2.54mm:PinHeader_1x02_P2.54mm_Vertical"),
     ("Connector", "Conn_01x03_Pin", "Connector_PinHeader_2.54mm:PinHeader_1x03_P2.54mm_Vertical"),
     ("Connector", "Conn_01x04_Pin", "Connector_PinHeader_2.54mm:PinHeader_1x04_P2.54mm_Vertical"),
+    ("Connector", "Conn_01x05_Pin", "Connector_PinHeader_2.54mm:PinHeader_1x05_P2.54mm_Vertical"),
+    ("Connector", "USB_C_Receptacle_PowerOnly_6P",
+     "Connector_USB:USB_C_Receptacle_GCT_USB4125-xx-x_6P_TopMnt_Horizontal"),
     ("Amplifier_Operational", "TL072", "Package_SO:SOIC-8_3.9x4.9mm_P1.27mm"),
     ("Amplifier_Operational", "LM358", "Package_SO:SOIC-8_3.9x4.9mm_P1.27mm"),
     ("Amplifier_Operational", "MCP6002-xSN", "Package_SO:SOIC-8_3.9x4.9mm_P1.27mm"),
@@ -50,6 +53,7 @@ PARTS = [
     ("74xx", "74HC14", "Package_SO:SOIC-14_3.9x8.7mm_P1.27mm"),
     ("Transistor_BJT", "BC847", "Package_TO_SOT_SMD:SOT-23"),
     ("Transistor_BJT", "MMBT3904", "Package_TO_SOT_SMD:SOT-23"),
+    ("Transistor_BJT", "2N3904", "Package_TO_SOT_THT:TO-92_Inline"),
     ("Transistor_FET", "AO3400A", "Package_TO_SOT_SMD:SOT-23"),
     ("Transistor_FET", "AO3401A", "Package_TO_SOT_SMD:SOT-23"),
     ("Transistor_FET", "IRLZ44N", "Package_TO_SOT_THT:TO-220-3_Vertical"),
@@ -57,7 +61,10 @@ PARTS = [
     ("Regulator_Linear", "LM7805_TO220", "Package_TO_SOT_THT:TO-220-3_Vertical"),
     ("Regulator_Linear", "L7809", "Package_TO_SOT_THT:TO-220-3_Vertical"),
     ("Regulator_Linear", "L7812", "Package_TO_SOT_THT:TO-220-3_Vertical"),
+    ("Regulator_Switching", "LM2596S-3.3", "Package_TO_SOT_SMD:TO-263-5_TabPin3"),
     ("Regulator_Switching", "LM2596S-5", "Package_TO_SOT_SMD:TO-263-5_TabPin3"),
+    ("Regulator_Switching", "LM2596S-12", "Package_TO_SOT_SMD:TO-263-5_TabPin3"),
+    ("Interface_UART", "MAX485E", "Package_SO:SOIC-8_3.9x4.9mm_P1.27mm"),
 ]
 
 
