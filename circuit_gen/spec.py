@@ -50,6 +50,14 @@ replace the IC with discrete parts.
 - All values are in SI base units: amperes, volts, ohms, hertz, seconds \
 (10 mA is 0.01, 4.7 kHz is 4700).
 
+Make every range discriminating: a circuit that gets the property wrong must \
+fall outside it. Derive each range from the stated value and component \
+tolerances, not from limits that almost any circuit meets (such as "anywhere \
+between 1.5 V and the supply" for a node with a definite role). Check a \
+response wherever the description says it holds (across a stated band, not \
+at one point), and check every named quality (a filter type, Q, "unity", a \
+current that a part needs to work) with a number.
+
 Make the set consistent:
 - Every requirement must be satisfiable together with all the others by one \
 circuit; two requirements with identical sources and loads cannot expect \
@@ -284,9 +292,11 @@ made:
 (a filter type, "unity", "flat", "rail to rail", "off when floating", ...) and \
 what each named net is.
 2. For each, name the requirement that checks it, and say whether its range \
-would reject a plausible circuit that gets that property wrong. A property \
-with no requirement, or a range wide enough to accept the wrong circuit, is a \
-gap.
+would reject a plausible circuit that gets that property wrong: think of a \
+specific wrong circuit (a wrong resistor, a wrong node, a different Q, a \
+response that is right at one frequency but not across the band) and say \
+what the requirement would measure for it. A property with no requirement, \
+or a range wide enough to accept the wrong circuit, is a gap.
 3. Reply with the complete corrected list of require(...) lines in a python \
 block: the same list if there are no gaps. Keep ranges as wide as the \
 description implies; do not demand more than it says."""
