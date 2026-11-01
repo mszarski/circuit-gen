@@ -154,6 +154,17 @@ swapped or a MOSFET fitted backwards) must each fail them
 Results before October 17 used a weaker version: 9 boards had references and
 most boards had a single hidden test, so they may overstate pass rates.
 
+**Current result, 4 samples per board (November 4).** Qwen3.8-27B, spec-first
+with self-review and the "ranges must reject a wrong circuit" rule, all 33
+boards: **119/132 (90%)**, standard 91%, hard 88%, every board solved at least
+once (33/33), 22/33 every time. **4 false accepts (3%)**: a blinker at 2 Hz
+(asked for about 1 Hz), the line receiver again not flat at 10 kHz, a power
+LED at 22.7 mA (the hidden limit of 20 mA is a judgement call), and a
+reverse-polarity board that passes -11.2 V when it should block -12 V. Over
+the last four runs the false-accept rate has stayed between 1.5% and 4.5%, so
+the prompt rules have not moved it; the review changed the spec in 53 of 132
+samples and the stress test strengthened it 41 times.
+
 **Spec coverage review and submit nudge (November 3).** All 33 boards, 2
 samples each, Qwen3.8-27B designing:
 
