@@ -335,6 +335,33 @@ e.g. an unconnected pin or a missing decoupling capacitor), which the
 all-or-nothing +0.2 does not localise. For reference, Qwen3.8-27B single-shot
 scores 0.64 with 35% fully correct.
 
+Second run (`RUN=grpo-v2`, one H200, 1 h 58 min in total): one epoch of LoRA SFT
+on the training boards' verified code (`grpo.py sft`, merged), then 120 GRPO
+steps on the merged model with partial structural credit (0.2 x (1 - 0.25 x
+errors)). Same prompts and sampling (2 samples each) at every stage:
+
+| | base | SFT | SFT + GRPO |
+|---|---|---|---|
+| held-out procgen: mean reward | 0.17 | 0.79 | **0.80** |
+| held-out procgen: fully correct | 2% | **53%** | **53%** |
+| held-out procgen: hidden tests passed | 6% | 68% | 68% |
+| held-out procgen: checks clean | 14% | 100% | 99% |
+| benchmark boards: mean reward | 0.16 | 0.55 | **0.56** |
+| benchmark boards: fully correct | 2% | 26% | 27% |
+| benchmark boards: hidden tests passed | 5% | 40% | **44%** |
+| benchmark boards: code runs | 45% | 82% | 80% |
+
+The SFT warm-up did nearly all of the work: held-out fully correct went from
+11% (GRPO v1) to 53%, and the 8B now beats single-shot Qwen3.8-27B on
+held-out procgen boards (0.80 vs 0.64). GRPO on top added little: the
+training reward climbed to about 0.95 on the training prompts, but held-out
+results did not move beyond sampling noise. Board by board on the benchmark
+it traded wins and losses (i2c_sensor_breakout 0 -> 1.0, mosfet_switch 1.0 ->
+0.5) and got worse on the hard tier (buck_5v 0.4 -> 0). The remaining gap is
+benchmark boards whose topologies are not among procgen's 20 families
+(usb_c_power, rs485_transceiver, ce_amplifier and the hard tier), so more
+families, not more RL steps, are the next lever.
+
 ### Fine-tuning Qwen3-8B: no gain
 
 LoRA (r=32) on Qwen3-8B with the sets above, one epoch on an H200, did not
