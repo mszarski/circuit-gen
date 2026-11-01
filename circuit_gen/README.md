@@ -299,6 +299,42 @@ simulated across component tolerances) and exported as chat-format JSONL:
 `train/eval_job.sh` benchmarks an adapter against its base model in one job
 (vLLM serves both on the job's GPU next to the normal eval).
 
+### Reinforcement learning (GRPO) on single-shot design
+
+`rl.py` turns procgen boards into single-shot prompts: the board description
+plus a parts sheet (symbols, pins by unit, footprints), answered with the
+complete SKiDL code in one reply. The reward is circuit_gen's own checker:
+0.2 if the code runs, +0.2 if ERC and the structural checks pass, +0.6 times
+the fraction of the board's hidden requirement tests that pass (the procgen
+board's verified require() lines, never shown to the model).
+
+```bash
+python -m circuit_gen rldata runs/procgen_v3/boards.jsonl -o runs/rl     # 2,052 / 236 / 33 prompts
+python -m circuit_gen rleval runs/rl/eval.jsonl --model Qwen/Qwen3-8B --no-thinking -o base.json
+hf jobs run --flavor h200 --timeout 4h --secrets HF_TOKEN -e DATASET=... -e OUTPUT_REPO=... \
+    ubuntu:24.04 bash -c "$(cat circuit_gen/train/grpo_job.sh)"           # eval, train, eval
+```
+
+First run (November 4): Qwen3-8B, LoRA r=32, thinking off, 120 steps of 4
+prompts x 8 completions, 2 h 8 min on one H200 (about $13). Same prompts and
+sampling before and after:
+
+| | base | after GRPO |
+|---|---|---|
+| held-out procgen: mean reward | 0.14 | **0.41** |
+| held-out procgen: fully correct | 1% | **11%** |
+| held-out procgen: hidden tests passed | 6% | **25%** |
+| held-out procgen: code runs | 40% | 98% |
+| benchmark boards: mean reward | 0.14 | **0.37** |
+| benchmark boards: hidden tests passed | 5% | **25%** |
+| benchmark boards: fully correct | 2% | 3% |
+
+It learned to write SKiDL that runs almost at once; most of the remaining
+loss is the structural checks (60% of held-out samples run but fail them,
+e.g. an unconnected pin or a missing decoupling capacitor), which the
+all-or-nothing +0.2 does not localise. For reference, Qwen3.8-27B single-shot
+scores 0.64 with 35% fully correct.
+
 ### Fine-tuning Qwen3-8B: no gain
 
 LoRA (r=32) on Qwen3-8B with the sets above, one epoch on an H200, did not
