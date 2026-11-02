@@ -9,30 +9,10 @@ fi
 
 echo "Setting up development environment..."
 
-# Install Python dependencies
-echo "Installing Python dependencies..."
-pip install -r "$CLAUDE_PROJECT_DIR/trajectory_classifier/requirements.txt"
-
-# Install pytest for testing
-pip install pytest
+pip install -r "$CLAUDE_PROJECT_DIR/circuit_gen/requirements.txt"
 
 # Toolchain for circuit_gen (KiCad, FreeRouting, SKiDL)
 echo "Setting up circuit_gen toolchain..."
 "$CLAUDE_PROJECT_DIR/circuit_gen/setup.sh" || echo "Warning: circuit_gen setup failed"
-
-# Install bd (beads issue tracker)
-echo "Setting up bd (beads issue tracker)..."
-if ! command -v bd &> /dev/null; then
-    if npm install -g @beads/bd --quiet 2>/dev/null && command -v bd &> /dev/null; then
-        echo "bd installed via npm"
-    elif command -v go &> /dev/null; then
-        echo "npm install failed, trying go install..."
-        go install github.com/steveyegge/beads/cmd/bd@latest
-        echo "export PATH=\"\$PATH:\$HOME/go/bin\"" >> "$CLAUDE_ENV_FILE"
-        echo "bd installed via go"
-    else
-        echo "Warning: Could not install bd - neither npm nor go available"
-    fi
-fi
 
 echo "Session startup complete"
