@@ -110,7 +110,9 @@ def cmd_schematic(args):
 
 def cmd_rldata(args):
     from .rl import build_dataset
-    print(json.dumps(build_dataset(args.boards, args.out, benchmark=args.benchmark), indent=2))
+    holdout = [f for f in (args.holdout_families or "").split(",") if f]
+    print(json.dumps(build_dataset(args.boards, args.out, benchmark=args.benchmark,
+                                   holdout_families=holdout), indent=2))
     return 0
 
 
@@ -203,6 +205,8 @@ def main(argv=None):
     rd.add_argument("boards", help="procgen boards.jsonl")
     rd.add_argument("-o", "--out", required=True)
     rd.add_argument("--benchmark", default=str(Path(__file__).parent / "benchmarks" / "boards.json"))
+    rd.add_argument("--holdout-families", default=None,
+                    help="comma-separated families kept out of training, scored in heldout.jsonl")
 
     re_ = sub.add_parser("rleval", help="single-shot reward of a model on RL prompts")
     re_.add_argument("prompts", help="train/eval/bench .jsonl from rldata")

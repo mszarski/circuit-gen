@@ -201,19 +201,28 @@ def _split(board_id, eval_fraction):
     return "eval" if h < eval_fraction else "train"
 
 
-def build_dataset(boards_path, out_dir, eval_fraction=0.1, benchmark=None):
-    """train.jsonl / eval.jsonl (procgen) and bench.jsonl (benchmark) of prompts with tests."""
+def build_dataset(boards_path, out_dir, eval_fraction=0.1, benchmark=None, holdout_families=()):
+    """train.jsonl / eval.jsonl (procgen) and bench.jsonl (benchmark) of prompts with tests.
+
+    Boards of `holdout_families` go to heldout.jsonl only, never to train or the SFT
+    data, to measure how far the model generalises to circuit types it never saw.
+    """
+    holdout_families = set(holdout_families)
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
     system = system_prompt()
     (out_dir / "system_prompt.txt").write_text(system)
     rows = {"train": [], "eval": []}
+    if holdout_families:
+        rows["heldout"] = []
     for line in open(boards_path):
         board = json.loads(line)
         tests = board_tests(board)
         if not tests:
             continue
-        rows[_split(board["id"], eval_fraction)].append({
+        split = ("heldout" if board.get("family") in holdout_families
+                 else _split(board["id"], eval_fraction))
+        rows[split].append({
             "id": board["id"], "family": board.get("family"),
             "prompt": [{"role": "system", "content": system},
                        {"role": "user", "content": f"Design this board:\n\n{board['description']}"}],

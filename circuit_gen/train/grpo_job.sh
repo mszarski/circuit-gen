@@ -15,6 +15,7 @@ set -euo pipefail
 BASE_MODEL="${BASE_MODEL:-Qwen/Qwen3-8B}"
 RUN="${RUN:-grpo-$(date +%Y%m%d-%H%M)}"
 EVAL_LIMIT="${EVAL_LIMIT:-120}"
+HELDOUT_LIMIT="${HELDOUT_LIMIT:-210}"
 export DEBIAN_FRONTEND=noninteractive
 
 apt-get update -qq
@@ -35,6 +36,12 @@ export PYTHONPATH=/work RL_DATA=/work/rl BASE_MODEL
 export VLLM_USE_FLASHINFER_SAMPLER=0
 
 mkdir -p results
+# Whole circuit families kept out of training (rldata --holdout-families), if any.
+heldout() {   # heldout NAME MODEL [ADAPTER]
+    [ -f rl/heldout.jsonl ] || return 0
+    python3 circuit_gen/train/rl_eval.py rl/heldout.jsonl "results/$1_heldout.json" --model "$2" \
+        ${3:+--adapter "$3"} --limit "$HELDOUT_LIMIT" | tee -a results/summary.txt
+}
 upload() {
     hf upload "$DATASET" results "rl_runs/$RUN" --repo-type dataset --commit-message "$RUN" \
         > /dev/null || true
@@ -43,6 +50,7 @@ python3 circuit_gen/train/rl_eval.py rl/eval.jsonl results/base_eval.json \
     --model "$BASE_MODEL" --limit "$EVAL_LIMIT" | tee -a results/summary.txt
 python3 circuit_gen/train/rl_eval.py rl/bench.jsonl results/base_bench.json \
     --model "$BASE_MODEL" | tee -a results/summary.txt
+heldout base "$BASE_MODEL"
 upload
 
 export SFT_DIR=/work/sft_merged
@@ -51,6 +59,7 @@ python3 circuit_gen/train/rl_eval.py rl/eval.jsonl results/sft_eval.json \
     --model "$SFT_DIR" --limit "$EVAL_LIMIT" | tee -a results/summary.txt
 python3 circuit_gen/train/rl_eval.py rl/bench.jsonl results/sft_bench.json \
     --model "$SFT_DIR" | tee -a results/summary.txt
+heldout sft "$SFT_DIR"
 upload
 
 GRPO_BASE="$SFT_DIR" python3 circuit_gen/train/grpo.py grpo 2>&1 | tee results/train.log \
@@ -60,5 +69,6 @@ python3 circuit_gen/train/rl_eval.py rl/eval.jsonl results/tuned_eval.json \
     --model "$SFT_DIR" --adapter "$ADAPTER" --limit "$EVAL_LIMIT" | tee -a results/summary.txt
 python3 circuit_gen/train/rl_eval.py rl/bench.jsonl results/tuned_bench.json \
     --model "$SFT_DIR" --adapter "$ADAPTER" | tee -a results/summary.txt
+heldout tuned "$SFT_DIR" "$ADAPTER"
 upload
 cat results/summary.txt

@@ -68,3 +68,16 @@ def test_build_dataset_splits_and_holds_out_the_benchmark(tmp_path):
     assert {r["id"] for r in sft} == train_ids
     assert sft[0]["completion"][0]["content"].startswith("```python")
     assert "require(" not in sft[0]["completion"][0]["content"]
+
+
+@needs_libs
+def test_build_dataset_holds_out_whole_families(tmp_path):
+    boards = procgen.generate(30, seed=2, families=["led_resistor", "voltage_divider", "rc_filter"])
+    path = tmp_path / "boards.jsonl"
+    path.write_text("".join(json.dumps(b) + "\n" for b in boards))
+    counts = rl.build_dataset(path, tmp_path / "rl", holdout_families=["rc_filter"])
+    held = [json.loads(l) for l in open(tmp_path / "rl" / "heldout.jsonl")]
+    assert counts["heldout"] == 10 and {r["family"] for r in held} == {"rc_filter"}
+    for name in ("train", "eval", "sft"):
+        rows = [json.loads(l) for l in open(tmp_path / "rl" / f"{name}.jsonl")]
+        assert not any(r["id"].startswith("rc_filter") for r in rows)
