@@ -106,6 +106,8 @@ def design_and_build(description, out_dir, opts, tests=None):
         "attempts": len(gen.attempts), "error": gen.error, "summary": gen.summary,
         "spec_revisions": gen.spec_revisions, "spec_strengthened": gen.spec_strengthened,
         "spec_reviewed": gen.spec_reviewed,
+        "spec_covered": gen.spec_covered,
+        "spec_uncovered": gen.spec_uncovered,
     }, indent=2))
     print(f"generation: passed_checks={gen.passed} attempts={len(gen.attempts)} "
           f"turns={gen.turns} error={gen.error}")

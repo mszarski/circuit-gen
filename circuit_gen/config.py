@@ -28,3 +28,7 @@ SPEC_REASONING_EFFORT = os.environ.get("CIRCUIT_GEN_SPEC_EFFORT", "low")
 # After writing the spec, the writer reviews it against the description for
 # stated properties no requirement covers ("0" turns this off).
 SPEC_REVIEW = os.environ.get("CIRCUIT_GEN_SPEC_REVIEW", "1") != "0"
+# After the review, values the description states (frequencies, voltages,
+# currents, gains) that no requirement checks go back to the spec writer once
+# (spec.uncovered_quantities; "0" turns this off).
+SPEC_COVERAGE = os.environ.get("CIRCUIT_GEN_SPEC_COVERAGE", "1") != "0"

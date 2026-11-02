@@ -32,5 +32,6 @@ needs_toolchain = pytest.mark.skipif(
 
 @pytest.fixture(autouse=True)
 def _no_spec_review(monkeypatch):
-    """Scripted spec writers answer once; tests of the review turn it back on."""
+    """Scripted spec writers answer once; tests of the review and coverage turn them back on."""
     monkeypatch.setattr(config, "SPEC_REVIEW", False)
+    monkeypatch.setattr(config, "SPEC_COVERAGE", False)

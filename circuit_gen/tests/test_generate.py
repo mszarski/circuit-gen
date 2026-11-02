@@ -154,6 +154,29 @@ class TestLoop:
                                            spec_backend=spec_writer)
         assert not result.spec_reviewed
 
+    def test_uncovered_stated_values_go_back_to_the_spec_writer(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(generate.config, "SPEC_COVERAGE", True)
+        spec_writer = ScriptedBackend([
+            say('```python\nrequire("freq(OUT)", 1.7, 2.35, analysis="tran", duration=3)\n```'),
+            say('```python\nrequire("freq(OUT)", 0.7, 1.4, analysis="tran", duration=8)\n```')])
+        designer = ScriptedBackend([say("done"), say("done"), say("done")])
+        result = generate.generate_circuit("Blinks at about 1 Hz. Name the nets OUT and GND.",
+                                           tmp_path, backend=designer, spec_first=True,
+                                           spec_backend=spec_writer)
+        assert "1 Hz" in spec_writer.started[1] and result.spec_covered
+        assert result.spec_uncovered == []
+        assert "0.7" in (tmp_path / "spec_covered.py").read_text()
+
+    def test_coverage_answer_that_closes_nothing_is_ignored(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(generate.config, "SPEC_COVERAGE", True)
+        same = '```python\nrequire("freq(OUT)", 1.7, 2.35, analysis="tran", duration=3)\n```'
+        spec_writer = ScriptedBackend([say(same), say(same)])
+        designer = ScriptedBackend([say("done"), say("done"), say("done")])
+        result = generate.generate_circuit("Blinks at about 1 Hz. Name the nets OUT and GND.",
+                                           tmp_path, backend=designer, spec_first=True,
+                                           spec_backend=spec_writer)
+        assert not result.spec_covered and result.spec_uncovered == ["1 Hz"]
+
     def test_long_exploration_is_nudged_to_submit(self, tmp_path, monkeypatch):
         monkeypatch.setattr(generate.library, "search_footprints", lambda q: ["Lib:FP_1"])
         n = generate.SUBMIT_AFTER_TURNS

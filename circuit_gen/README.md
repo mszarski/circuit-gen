@@ -102,6 +102,29 @@ requirement whose range would reject a circuit that gets it wrong.
 parts are scaled by 2 and 0.5 one at a time and any change no requirement
 notices goes back to the spec writer once (`spec_strengthened.py`).
 
+Between the review and the design, a deterministic check
+(`spec.uncovered_quantities`, no model call) lists every frequency, voltage,
+current and gain the description states that no requirement would reject
+when wrong: no requirement measures it, or the only one has a range that
+misses the value or is too wide (a `freq()` range wider than about 3:1, a
+`gain()` wider than 2.5:1). Supplies and input levels count when a test
+applies them, thresholds when tests sit on both sides, load currents when a
+load draws them. Any gaps go back to the spec writer once
+(`spec_covered.py`), and the answer is kept only if it closes one.
+`CIRCUIT_GEN_SPEC_COVERAGE=0` turns it off; `generation.json` records
+`spec_uncovered` and `spec_covered`.
+
+Measured on the final specs of the last four benchmark runs (329 samples,
+before this check existed), it flags 1 of the 10 false accepts (a blinker
+spec testing 1.7-2.35 Hz for "about 1 Hz") and 15 of 298 passing samples
+(5%, mostly a 4.5 V mid-rail load it cannot infer, costing one extra spec
+call). Before the coverage review it would have flagged 4 of the 10: the
+review already closes most missing numbers. The other 9 false accepts are
+not missing numbers: a net named for the LED anode wired to the comparator
+output, a reverse-polarity spec that expected the reversed input to pass
+through, "flat in the audio band" with no number, and limits the
+description never states.
+
 
 1. **Structural rules** (`checks.py`), on every attempt: footprints exist and
    match the symbol's pins; no net with a single pin; every IC power pin is

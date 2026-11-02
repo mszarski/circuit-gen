@@ -337,3 +337,124 @@ def _respec(description, backend, workdir, note, filename, attempts):
         (workdir / filename).write_text(code)
         return reqs, code
     raise last_error
+
+
+# ----------------------------------------------------------------------------
+# Deterministic coverage: numbers the description states that no requirement checks
+# ----------------------------------------------------------------------------
+
+_PREFIX = {"": 1, "k": 1e3, "M": 1e6, "m": 1e-3, "u": 1e-6, "µ": 1e-6, "n": 1e-9}
+_QTY = re.compile(r"(?<![\w.])([-+]?\d+(?:\.\d+)?)\s*(k|M|m|u|µ)?(Hz|V|A)\b")
+_GAIN = re.compile(r"gain (?:of )?(?:about |around |roughly |approximately )?(-?\d+(?:\.\d+)?)")
+
+
+def stated_quantities(description):
+    """(kind, value, text) for each frequency, voltage, current and gain the description states.
+
+    Tolerances ("within 0.1 V", "+/-5 V") are skipped: they bound a property, they
+    are not one.
+    """
+    out = []
+    for m in _QTY.finditer(description):
+        if re.search(r"(within|±)\s*$", description[max(0, m.start() - 8):m.start()]):
+            continue
+        value = float(m.group(1)) * _PREFIX[m.group(2) or ""]
+        out.append((m.group(3), value, m.group(0)))
+    for m in _GAIN.finditer(description):
+        out.append(("gain", abs(float(m.group(1))), m.group(0)))
+    if re.search(r"\bunity[- ]gain\b", description) and not any(
+            k == "gain" and v == 1 for k, v, _ in out):
+        out.append(("gain", 1.0, "unity gain"))
+    return out
+
+
+def _num(x):
+    return isinstance(x, (int, float)) and not isinstance(x, bool)
+
+
+def _implied_gains(req):
+    """Gains a DC v() test implies: its expected output over each input level or difference."""
+    if not str(req["measure"]).replace(" ", "").startswith("v("):
+        return []
+    mid = abs(float(req["low"]) + float(req["high"])) / 2
+    ins = [v for v in (req.get("sources") or {}).values() if _num(v) and 0 < abs(v) < 5]
+    diffs = {abs(v) for v in ins} | {abs(a - b) for a in ins for b in ins if a != b}
+    return [mid / d for d in diffs if d > 0]
+
+
+def _covered(kind, value, reqs, volts=()):
+    """Whether some requirement would reject a circuit that gets this quantity wrong."""
+    value = abs(value)
+    srcs = [abs(v) for r in reqs for v in (r.get("sources") or {}).values() if _num(v)]
+    for r in reqs:
+        m = str(r["measure"]).replace(" ", "")
+        lo, hi = float(r["low"]), float(r["high"])
+        inside = lo <= value * 1.02 and value * 0.98 <= hi
+        if kind == "Hz":
+            # An oscillation frequency in a range no wider than 3:1, or a response
+            # measured near that frequency.
+            if m.startswith("freq(") and inside and hi / max(lo, 1e-12) <= 3:
+                return True
+            if r.get("analysis") == "ac" and value / 1.6 <= float(r.get("freq", 1000)) <= value * 1.6:
+                return True
+        elif kind == "V":
+            if m.startswith(("v(", "avg(")) and (inside or lo <= -value * 0.98 and -value * 1.02 <= hi):
+                return True
+            if m.startswith("ripple(") and value * 0.5 <= hi <= value * 1.5:
+                return True
+        elif kind == "A":
+            if m.startswith(("i(", "iavg(")) and inside:
+                return True
+            for load in (r.get("loads") or {}).values():
+                ohms = load.get("r") if isinstance(load, dict) else load
+                if _num(ohms) and any(abs(v / ohms - value) <= 0.2 * value
+                                      for v in srcs + list(volts)):
+                    return True
+        elif kind == "gain":
+            if m.startswith("gain(") and inside and hi / max(lo, 1e-12) <= 2.5:
+                return True
+            if any(0.8 * value <= g <= 1.25 * value for g in _implied_gains(r)):
+                return True
+    if kind == "V" and any(abs(s - value) <= 0.02 * value for s in srcs):
+        return True                        # a supply or input level the tests apply
+    if kind == "V" and any(0.7 * value <= s < value for s in srcs) and any(
+            value < s <= 1.3 * value for s in srcs):
+        return True                        # a threshold, tested on both sides
+    return False
+
+
+def uncovered_quantities(description, reqs):
+    """Numbers the description states that no requirement checks tightly enough.
+
+    Deterministic, so it costs nothing: a frequency, voltage, current or gain with
+    no requirement measuring it, or only one whose range is too wide to reject a
+    circuit that gets it wrong (e.g. 1.7-2.35 Hz for "about 1 Hz").
+    """
+    qs = stated_quantities(description)
+    volts = [abs(v) for k, v, _ in qs if k == "V"]
+    seen, out = set(), []
+    for kind, value, text in qs:
+        if (kind, value) not in seen and not _covered(kind, value, reqs, volts):
+            out.append(text)
+        seen.add((kind, value))
+    return out
+
+
+COVERAGE_NOTE = """These values stated in the description have no requirement that \
+would reject a circuit that gets them wrong: {missing}.
+
+Current requirements:
+{spec}
+
+For each, add a requirement that measures it, or tighten the one that should: \
+a frequency needs freq() in a range containing it (no wider than about 2:1) or \
+an AC test near it; a voltage, current or gain needs a measurement whose range \
+contains the stated value. If a value is only an operating condition (a supply \
+or input level), apply it as a source in a test. Reply with the complete list \
+of require(...) lines."""
+
+
+def cover_quantities(description, backend, workdir, spec_code, missing, attempts=3):
+    """Ask the spec writer to add requirements for stated values none checks."""
+    note = COVERAGE_NOTE.format(missing=", ".join(missing), spec=spec_code.strip())
+    return _respec(description, backend, workdir, note, "spec_covered.py", attempts)

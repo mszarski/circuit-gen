@@ -54,7 +54,10 @@ without trusting the model's own claims.
     tested with a scripted client.
   - Spec-first is the default: a spec writer turns the description into
     frozen requirement tests before design. Then:
-    1. a coverage review of the spec;
+    1. a coverage review of the spec, then a deterministic check that every
+       stated frequency, voltage, current and gain has a requirement that
+       would reject it wrong (`spec.uncovered_quantities`; gaps go back to
+       the spec writer once);
     2. a stress test that scales each R/C/L by ×2 and ×0.5;
     3. a strengthen round;
     4. the designer runs with a submit nudge after 10 turns.
@@ -380,11 +383,17 @@ weakness)**
    - c. If training continues, always report **held-out-family** scores. Stop
      deriving families from benchmark boards, or build a fresh hidden
      benchmark.
-2. **False accepts in the 27B pipeline** (about 3%, all spec-coverage
-   misses).
-   - Ideas: a second, independent spec writer to diff against.
-   - Or property extraction from the brief, so every number in the
-     description must map to a requirement.
+2. **False accepts in the 27B pipeline** (about 3%).
+   - Done: the deterministic number-coverage check. Measured on the last
+     four runs' specs it catches only 1 of 10 false accepts (5% of passing
+     specs flagged); the review already closes most missing numbers.
+   - The other 9 are *semantic* spec errors, not missing numbers: a named
+     net's role (LED anode vs comparator output), a spec expecting the
+     wrong behaviour (reverse polarity passing through), qualitative words
+     ("flat in the audio band"), limits the description never states.
+   - Next idea: a second, independent spec writer to diff against, or a
+     check that each named net is measured in the role the description
+     gives it. Measure with a 4-sample benchmark run (paid; ask first).
 3. **Benchmark hygiene:**
    - a fresh hidden board set never used to design procgen families;
    - more samples per board (4+) for decisions.

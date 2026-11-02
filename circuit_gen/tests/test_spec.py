@@ -6,7 +6,7 @@ import re
 
 import pytest
 
-from circuit_gen import generate
+from circuit_gen import generate, spec
 from circuit_gen.backends import Turn
 from circuit_gen.spec import SpecError, parse_requirements, to_code
 
@@ -165,3 +165,47 @@ def test_named_nets_with_signs():
 def test_rejects_unmeasurable_or_unsatisfiable(line, message):
     with pytest.raises(SpecError, match=re.escape(message)):
         parse_requirements(line)
+
+
+class TestQuantityCoverage:
+    """Values a description states must each have a requirement that would reject them wrong."""
+
+    BLINKER = ("Two LEDs that blink alternately at about 1 Hz, driven by a 555 timer, powered "
+               "from 5 V through a 2-pin header. Name the supply nets VCC and GND, and the 555 "
+               "output net OUT.")
+
+    def test_flags_a_frequency_range_that_misses_the_stated_value(self):
+        # A false accept from a real run: the spec tested 2 Hz for "about 1 Hz".
+        reqs = spec.parse_requirements(
+            "require('freq(OUT)', 1.7, 2.35, sources={'VCC': 5}, analysis='tran', duration=2.5)")
+        assert spec.uncovered_quantities(self.BLINKER, reqs) == ["1 Hz"]
+        good = spec.parse_requirements(
+            "require('freq(OUT)', 0.7, 1.4, sources={'VCC': 5}, analysis='tran', duration=8)")
+        assert spec.uncovered_quantities(self.BLINKER, good) == []
+
+    def test_flags_a_range_too_wide_to_reject_a_wrong_value(self):
+        reqs = spec.parse_requirements(
+            "require('freq(OUT)', 0.1, 10, sources={'VCC': 5}, analysis='tran', duration=8)")
+        assert spec.uncovered_quantities(self.BLINKER, reqs) == ["1 Hz"]
+
+    def test_thresholds_supplies_and_dc_gains_count_as_covered(self):
+        window = ("Window comparator on a 5 V supply: the output OUT is high (above 4.5 V) while "
+                  "the input IN is between 2 V and 3 V and low (below 1 V) otherwise.")
+        reqs = spec.parse_requirements("\n".join(
+            f"require('v(OUT)', {lo}, {hi}, sources={{'VCC': 5, 'IN': {vin}}})"
+            for vin, lo, hi in [(2.5, 4.5, 5.5), (1.8, 0, 1), (2.2, 4.5, 5.5), (2.8, 4.5, 5.5),
+                                (3.2, 0, 1)]))
+        assert spec.uncovered_quantities(window, reqs) == []
+        diff = "Op-amp difference amplifier with a gain of 10 on +/-12 V supplies."
+        reqs = spec.parse_requirements(
+            "require('v(OUT)', 4.5, 5.5, sources={'IN_P': 0.5, 'IN_N': 0, 'VPOS': 12, 'VNEG': -12})")
+        assert spec.uncovered_quantities(diff, reqs) == []
+
+    def test_load_currents_and_tolerances(self):
+        reg = "12 V to 5 V regulator for up to 100 mA. Name the nets VIN, +5V and GND."
+        loaded = spec.parse_requirements(
+            "require('v(+5V)', 4.75, 5.25, sources={'VIN': 12}, loads={'+5V': 50})")
+        assert spec.uncovered_quantities(reg, loaded) == []
+        unloaded = spec.parse_requirements("require('v(+5V)', 4.75, 5.25, sources={'VIN': 12})")
+        assert spec.uncovered_quantities(reg, unloaded) == ["100 mA"]
+        assert [t for _, _, t in spec.stated_quantities("VMID within 0.1 V of 4.5 V")] == ["4.5 V"]

@@ -251,6 +251,8 @@ class GenerationResult:
     spec_revisions: int = 0
     spec_strengthened: int = 0      # stress-test rounds that changed the requirements
     spec_reviewed: bool = False     # the coverage review changed the requirements
+    spec_uncovered: list = field(default_factory=list)  # stated values no requirement checks
+    spec_covered: bool = False      # the deterministic coverage check changed the requirements
 
 
 def _format_symbols(entries):
@@ -447,7 +449,8 @@ def generate_circuit(description, workdir, backend=None, max_turns=MAX_TURNS, ma
     designer's model in a separate conversation); `review_backend` reviews the
     spec for coverage (default: the spec writer).
     """
-    from .spec import SpecError, review_spec, revise_spec, strengthen_spec, write_spec
+    from .spec import (SpecError, cover_quantities, review_spec, revise_spec, strengthen_spec,
+                       uncovered_quantities, write_spec)
 
     backend = backend or make_backend()
     workdir = Path(workdir)
@@ -463,6 +466,7 @@ def generate_circuit(description, workdir, backend=None, max_turns=MAX_TURNS, ma
     stress_rounds = 0
     spec_reqs = []
     spec_reviewed = False
+    spec_uncovered, spec_covered = [], False
     turns_since_check = 0           # tool-calling turns since the last check_circuit
     if spec_first:
         try:
@@ -478,6 +482,17 @@ def generate_circuit(description, workdir, backend=None, max_turns=MAX_TURNS, ma
                     spec_reqs, suffix, spec_reviewed = reviewed_reqs, reviewed, True
             except SpecError:
                 pass                                 # keep the requirements as written
+        uncovered = uncovered_quantities(description, spec_reqs)
+        if uncovered and config.SPEC_COVERAGE:
+            try:
+                new_reqs, new_suffix = cover_quantities(description, review_backend or spec_backend,
+                                                        workdir, suffix, uncovered)
+                still = uncovered_quantities(description, new_reqs)
+                if len(still) < len(uncovered):      # keep it only if it closed a gap
+                    spec_reqs, suffix, uncovered, spec_covered = new_reqs, new_suffix, still, True
+            except SpecError:
+                pass
+        spec_uncovered = uncovered
         user += SPEC_NOTE.format(spec=suffix.strip())
     tools = Toolbox(workdir, suffix=suffix)
     repeats = Counter()  # identical tool calls, to break loops
@@ -585,6 +600,7 @@ def generate_circuit(description, workdir, backend=None, max_turns=MAX_TURNS, ma
     result.attempts = tools.attempts
     result.spec_revisions = revisions
     result.spec_reviewed = spec_reviewed
+    result.spec_uncovered, result.spec_covered = spec_uncovered, spec_covered
     if hasattr(backend, "export"):
         # The full design conversation, tool results included: training data.
         (workdir / "conversation.json").write_text(json.dumps(
