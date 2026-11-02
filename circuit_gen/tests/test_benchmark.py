@@ -15,12 +15,16 @@ from circuit_gen.spice import simulate
 from conftest import needs_skidl
 
 BENCH = Path(__file__).parent.parent / "benchmarks"
+HARDER = BENCH / "harder"
 CASES = {c["id"]: c for c in json.loads((BENCH / "boards.json").read_text())}
+HARDER_CASES = {c["id"]: c for c in json.loads((HARDER / "boards.json").read_text())}
 REFERENCES = sorted(p for p in (BENCH / "reference").glob("*.py") if not p.name.startswith("_"))
+HARDER_REFERENCES = sorted((HARDER / "reference").glob("*.py"))
 
 
 def test_boards_are_well_formed():
-    for case in CASES.values():
+    assert not set(CASES) & set(HARDER_CASES)
+    for case in [*CASES.values(), *HARDER_CASES.values()]:
         assert case["description"] and isinstance(case.get("tests", []), list)
         for t in case.get("tests", []):
             lo, hi = t["expect"]
@@ -29,12 +33,14 @@ def test_boards_are_well_formed():
 
 def test_every_board_has_a_reference_and_two_tests():
     assert {p.stem for p in REFERENCES} == set(CASES)
-    for case in CASES.values():
+    assert {p.stem for p in HARDER_REFERENCES} == set(HARDER_CASES)
+    for case in [*CASES.values(), *HARDER_CASES.values()]:
         assert len(case.get("tests", [])) >= 2, case["id"]
 
 
 @needs_skidl
-@pytest.mark.parametrize("ref", REFERENCES, ids=lambda p: p.stem)
+@pytest.mark.parametrize("ref", REFERENCES + HARDER_REFERENCES,
+                         ids=lambda p: p.stem)
 def test_reference_passes(ref, tmp_path):
     helpers = (BENCH / "reference" / "_parts.py").read_text()
     run = run_circuit_code(helpers + "\n" + ref.read_text(), tmp_path)
@@ -42,7 +48,7 @@ def test_reference_passes(ref, tmp_path):
     assert not run.erc_errors
     report = check_circuit(run.circuit)
     assert report.ok, report.summary()
-    sim = simulate(run.circuit, CASES[ref.stem]["tests"])
+    sim = simulate(run.circuit, {**CASES, **HARDER_CASES}[ref.stem]["tests"])
     assert sim.ok, sim.summary()
 
 
@@ -80,12 +86,40 @@ MUTANTS = [
 ]
 
 
-@needs_skidl
-@pytest.mark.parametrize("board,old,new", MUTANTS, ids=lambda x: x if "(" not in x else "")
-def test_hidden_tests_reject_mutant(board, old, new, tmp_path):
+HARDER_MUTANTS = [
+    ("butterworth_lp4", 'm2 & C("22n") & out', 'm2 & C("6.8n") & out'),   # stage 2 Q 0.72: not Butterworth
+    ("butterworth_lp4", 'x1 & C("10n") & gnd', 'x1 & C("100n") & gnd'),   # stage 1 cutoff far too low
+    ("current_sense", 'R("19.1k", tolerance=0.01)', 'R("9.1k", tolerance=0.01)'),  # 0.5 V/A
+    ("dual_ldo_rails", 'd["A"] += vin; d["K"] += vp', 'vin += vp'),         # no reverse protection
+    ("dual_ldo_rails", 'v5 & R("1.5k") & a5', 'v5 += a5'),                 # LED without resistor
+    ("buck_ldo", 'r3["VI"] += v5', 'r3["VI"] += vin'),                     # 3.3 V linear from 24 V
+    ("pwm_led_dimmer", 'dd["A"] += dis; dd["K"] += thr', 'dd["A"] += thr; dd["K"] += dis'),  # diode reversed: duty > 50%
+    ("h_bridge", '"AO3401A"', '"AO3400A"'),                                # N-channel high side
+    ("bridge_amp_5v", 'ni & R("100k", tolerance=0.001) & ref', 'ni & R("100k", tolerance=0.001) & gnd'),  # output not offset
+    ("bridge_amp_5v", 'R("2.2k", tolerance=0.01)', 'R("22k", tolerance=0.01)'),  # gain ~19
+    ("attiny_sensor_node", 'v3 & R("4.7k") & scl\n', ""),                 # missing SCL pull-up
+    ("led_constant_current", 'vz & R("13.3k"', 'vin & R("13.3k"'),         # reference from the raw supply
+    ("bandlimited_preamp", 'inp & C("100n") & h1', 'inp & C("10u") & h1'),  # high-pass corner too low
+    ("bandlimited_preamp", 'x3 & C("4.7n") & ref', 'x3 & C("47n") & ref'),  # low-pass corner too low
+]
+
+
+def _mutant_rejected(cases, ref_dir, board, old, new, tmp_path):
     helpers = (BENCH / "reference" / "_parts.py").read_text()
-    code = (BENCH / "reference" / f"{board}.py").read_text()
+    code = (ref_dir / f"{board}.py").read_text()
     assert old in code
     run = run_circuit_code(helpers + "\n" + code.replace(old, new), tmp_path)
     assert run.ok, run.error
-    assert not simulate(run.circuit, CASES[board]["tests"]).ok
+    assert not simulate(run.circuit, cases[board]["tests"]).ok
+
+
+@needs_skidl
+@pytest.mark.parametrize("board,old,new", MUTANTS, ids=lambda x: x if "(" not in x else "")
+def test_hidden_tests_reject_mutant(board, old, new, tmp_path):
+    _mutant_rejected(CASES, BENCH / "reference", board, old, new, tmp_path)
+
+
+@needs_skidl
+@pytest.mark.parametrize("board,old,new", HARDER_MUTANTS, ids=lambda x: x if "(" not in x else "")
+def test_harder_hidden_tests_reject_mutant(board, old, new, tmp_path):
+    _mutant_rejected(HARDER_CASES, HARDER / "reference", board, old, new, tmp_path)

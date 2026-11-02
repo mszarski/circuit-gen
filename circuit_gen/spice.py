@@ -93,6 +93,9 @@ Ro vos vo 0.05
 * The load current is drawn from the input, plus a small quiescent current.
 Fin vi gnd Vsense 1
 Gq vi gnd vi gnd 1e-5
+* A reversed input conducts from GND to VI (the substrate diode of a real
+* regulator), so a missing reverse-polarity diode shows up as input current.
+Drev gnd vi CG_DIODE
 .ends
 .subckt CG_555 gnd tr q r cv thr dis vcc
 * Behavioural 555: internal 5k/5k/5k divider, a regenerative latch whose state

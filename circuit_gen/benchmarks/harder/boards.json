@@ -1,0 +1,748 @@
+[
+ {
+  "id": "butterworth_lp4",
+  "description": "Fourth-order Butterworth low-pass filter with a 1 kHz cutoff and unity passband gain, built from two op-amp Sallen-Key stages on +/-12 V supplies: maximally flat up to the cutoff, then falling at 80 dB per decade. Input, output and power on pin headers. Name the nets VPOS, VNEG, GND, IN and OUT.",
+  "tests": [
+   {
+    "name": "unity gain at 100 Hz",
+    "analysis": "ac",
+    "freq": 100.0,
+    "sources": {
+     "VPOS": 12,
+     "VNEG": -12,
+     "IN": "ac"
+    },
+    "measure": "gain(OUT,IN)",
+    "expect": [
+     0.97,
+     1.03
+    ]
+   },
+   {
+    "name": "still flat at 500 Hz",
+    "analysis": "ac",
+    "freq": 500.0,
+    "sources": {
+     "VPOS": 12,
+     "VNEG": -12,
+     "IN": "ac"
+    },
+    "measure": "gain(OUT,IN)",
+    "expect": [
+     0.95,
+     1.04
+    ]
+   },
+   {
+    "name": "-3 dB at 1 kHz",
+    "analysis": "ac",
+    "freq": 1000.0,
+    "sources": {
+     "VPOS": 12,
+     "VNEG": -12,
+     "IN": "ac"
+    },
+    "measure": "gain(OUT,IN)",
+    "expect": [
+     0.62,
+     0.79
+    ]
+   },
+   {
+    "name": "-24 dB at 2 kHz (4th order)",
+    "analysis": "ac",
+    "freq": 2000.0,
+    "sources": {
+     "VPOS": 12,
+     "VNEG": -12,
+     "IN": "ac"
+    },
+    "measure": "gain(OUT,IN)",
+    "expect": [
+     0.035,
+     0.095
+    ]
+   },
+   {
+    "name": "-80 dB at 10 kHz",
+    "analysis": "ac",
+    "freq": 10000.0,
+    "sources": {
+     "VPOS": 12,
+     "VNEG": -12,
+     "IN": "ac"
+    },
+    "measure": "gain(OUT,IN)",
+    "expect": [
+     0,
+     0.0005
+    ]
+   }
+  ],
+  "tier": "harder"
+ },
+ {
+  "id": "current_sense",
+  "description": "Low-side current monitor for a load of up to 2 A on a 12 V supply: a 0.05 ohm shunt resistor between LOAD_NEG and GND and an op-amp on a separate 5 V supply (VCC) amplifying the shunt voltage so that OUT reads 1 V per amp of load current, with about 1 kHz of filtering. The load connects between V12 and LOAD_NEG. Name the nets V12, VCC, GND, LOAD_NEG and OUT.",
+  "tests": [
+   {
+    "name": "1 V at 1 A",
+    "sources": {
+     "V12": 12,
+     "VCC": 5
+    },
+    "loads": {
+     "LOAD_NEG": {
+      "to": "V12",
+      "r": 11.95
+     }
+    },
+    "measure": "v(OUT)",
+    "expect": [
+     0.93,
+     1.07
+    ]
+   },
+   {
+    "name": "2 V at 2 A",
+    "sources": {
+     "V12": 12,
+     "VCC": 5
+    },
+    "loads": {
+     "LOAD_NEG": {
+      "to": "V12",
+      "r": 5.95
+     }
+    },
+    "measure": "v(OUT)",
+    "expect": [
+     1.86,
+     2.14
+    ]
+   },
+   {
+    "name": "near 0 V with no load",
+    "sources": {
+     "V12": 12,
+     "VCC": 5
+    },
+    "measure": "v(OUT)",
+    "expect": [
+     0,
+     0.1
+    ]
+   }
+  ],
+  "tier": "harder"
+ },
+ {
+  "id": "dual_ldo_rails",
+  "description": "Power board that makes +5 V and +3.3 V from a 12 V input: a series diode protects against reverse polarity, a 7805-style regulator makes +5V (up to 300 mA for the load) and an AMS1117-3.3 fed from +5V makes +3V3 (up to 300 mA), with input and output capacitors and a power LED on each rail. Input and outputs on pin headers. Name the nets VIN, +5V, +3V3 and GND.",
+  "tests": [
+   {
+    "name": "+5V at 200 mA",
+    "sources": {
+     "VIN": 12
+    },
+    "loads": {
+     "+5V": 25
+    },
+    "measure": "v(+5V)",
+    "expect": [
+     4.75,
+     5.25
+    ]
+   },
+   {
+    "name": "+3V3 at 300 mA",
+    "sources": {
+     "VIN": 12
+    },
+    "loads": {
+     "+3V3": 11
+    },
+    "measure": "v(+3V3)",
+    "expect": [
+     3.2,
+     3.4
+    ]
+   },
+   {
+    "name": "+3V3 with both rails loaded",
+    "sources": {
+     "VIN": 12
+    },
+    "loads": {
+     "+5V": 25,
+     "+3V3": 11
+    },
+    "measure": "v(+3V3)",
+    "expect": [
+     3.2,
+     3.4
+    ]
+   },
+   {
+    "name": "reversed input: +5V stays off",
+    "sources": {
+     "VIN": -12
+    },
+    "measure": "v(+5V)",
+    "expect": [
+     -0.3,
+     0.3
+    ]
+   },
+   {
+    "name": "reversed input draws no current",
+    "sources": {
+     "VIN": -12
+    },
+    "measure": "i(VIN)",
+    "expect": [
+     0,
+     0.001
+    ]
+   },
+   {
+    "name": "power LEDs lit, current limited",
+    "sources": {
+     "VIN": 12
+    },
+    "measure": "i(VIN)",
+    "expect": [
+     0.002,
+     0.03
+    ]
+   }
+  ],
+  "tier": "harder"
+ },
+ {
+  "id": "buck_ldo",
+  "description": "Two-rail supply from a 12 V to 24 V input: an LM2596-5.0 buck converter makes +5V at up to 1 A, and an AMS1117-3.3 linear regulator fed from +5V makes a quiet +3V3 rail for up to 500 mA, so +3V3 has under 10 mV of ripple and the input draws far less than a linear design would. Input and outputs on pin headers. Name the nets VIN, +5V, +3V3 and GND.",
+  "tests": [
+   {
+    "name": "+3V3 at 500 mA from 24 V",
+    "measure": "avg(+3V3)",
+    "expect": [
+     3.2,
+     3.4
+    ],
+    "sources": {
+     "VIN": 24
+    },
+    "loads": {
+     "+3V3": 6.6
+    },
+    "analysis": "tran",
+    "duration": 0.01
+   },
+   {
+    "name": "+5V with 0.5 A on +5V and 0.5 A on +3V3",
+    "measure": "avg(+5V)",
+    "expect": [
+     4.75,
+     5.25
+    ],
+    "sources": {
+     "VIN": 12
+    },
+    "loads": {
+     "+5V": 10,
+     "+3V3": 6.6
+    },
+    "analysis": "tran",
+    "duration": 0.01
+   },
+   {
+    "name": "+3V3 ripple under 10 mV",
+    "measure": "ripple(+3V3)",
+    "expect": [
+     0,
+     0.01
+    ],
+    "sources": {
+     "VIN": 24
+    },
+    "loads": {
+     "+3V3": 6.6
+    },
+    "analysis": "tran",
+    "duration": 0.01
+   },
+   {
+    "name": "efficient: input current at 24 V, 0.5 A on +3V3",
+    "measure": "iavg(VIN)",
+    "expect": [
+     0.08,
+     0.16
+    ],
+    "sources": {
+     "VIN": 24
+    },
+    "loads": {
+     "+3V3": 6.6
+    },
+    "analysis": "tran",
+    "duration": 0.01
+   }
+  ],
+  "tier": "harder"
+ },
+ {
+  "id": "pwm_led_dimmer",
+  "description": "PWM dimmer for a 12 V LED strip drawing up to 1 A: a 555 timer on 12 V runs at about 1 kHz with the strip on about 30% of the time (a diode separates the charge and discharge resistors), driving an N-channel MOSFET low-side switch with a gate resistor and gate pull-down, and a flyback diode across the strip. The strip connects between V12 and LOAD_NEG. Name the nets V12, GND and LOAD_NEG.",
+  "tests": [
+   {
+    "name": "~1 kHz",
+    "measure": "freq(LOAD_NEG)",
+    "expect": [
+     750,
+     1300
+    ],
+    "sources": {
+     "V12": 12
+    },
+    "loads": {
+     "LOAD_NEG": {
+      "to": "V12",
+      "r": 24
+     }
+    },
+    "analysis": "tran",
+    "duration": 0.02
+   },
+   {
+    "name": "strip on ~30% (LOAD_NEG high ~70%)",
+    "measure": "duty(LOAD_NEG)",
+    "expect": [
+     0.6,
+     0.8
+    ],
+    "sources": {
+     "V12": 12
+    },
+    "loads": {
+     "LOAD_NEG": {
+      "to": "V12",
+      "r": 24
+     }
+    },
+    "analysis": "tran",
+    "duration": 0.02
+   },
+   {
+    "name": "switch pulls the strip fully on and off",
+    "measure": "ripple(LOAD_NEG)",
+    "expect": [
+     11,
+     13
+    ],
+    "sources": {
+     "V12": 12
+    },
+    "loads": {
+     "LOAD_NEG": {
+      "to": "V12",
+      "r": 24
+     }
+    },
+    "analysis": "tran",
+    "duration": 0.02
+   }
+  ],
+  "tier": "harder"
+ },
+ {
+  "id": "h_bridge",
+  "description": "Discrete H-bridge motor driver on 12 V for a motor of up to 1 A between MOTOR_A and MOTOR_B, built from two P-channel and two N-channel MOSFETs with NPN transistor gate drivers, controlled by 3.3 V logic inputs IN_A and IN_B: an input high drives its motor terminal to V12, an input low (or floating) drives it to GND, so IN_A high with IN_B low turns the motor one way, the opposite turns it the other way, and both low brakes it. Name the nets V12, GND, IN_A, IN_B, MOTOR_A and MOTOR_B.",
+  "tests": [
+   {
+    "name": "forward: MOTOR_A at V12",
+    "sources": {
+     "V12": 12,
+     "IN_A": 3.3,
+     "IN_B": 0
+    },
+    "loads": {
+     "MOTOR_A": {
+      "to": "MOTOR_B",
+      "r": 12
+     }
+    },
+    "measure": "v(MOTOR_A)",
+    "expect": [
+     11.0,
+     12.05
+    ]
+   },
+   {
+    "name": "forward: MOTOR_B at GND",
+    "sources": {
+     "V12": 12,
+     "IN_A": 3.3,
+     "IN_B": 0
+    },
+    "loads": {
+     "MOTOR_A": {
+      "to": "MOTOR_B",
+      "r": 12
+     }
+    },
+    "measure": "v(MOTOR_B)",
+    "expect": [
+     0,
+     0.6
+    ]
+   },
+   {
+    "name": "reverse: MOTOR_B at V12",
+    "sources": {
+     "V12": 12,
+     "IN_A": 0,
+     "IN_B": 3.3
+    },
+    "loads": {
+     "MOTOR_A": {
+      "to": "MOTOR_B",
+      "r": 12
+     }
+    },
+    "measure": "v(MOTOR_B)",
+    "expect": [
+     11.0,
+     12.05
+    ]
+   },
+   {
+    "name": "reverse: MOTOR_A at GND",
+    "sources": {
+     "V12": 12,
+     "IN_A": 0,
+     "IN_B": 3.3
+    },
+    "loads": {
+     "MOTOR_A": {
+      "to": "MOTOR_B",
+      "r": 12
+     }
+    },
+    "measure": "v(MOTOR_A)",
+    "expect": [
+     0,
+     0.6
+    ]
+   },
+   {
+    "name": "motor current ~1 A forward",
+    "sources": {
+     "V12": 12,
+     "IN_A": 3.3,
+     "IN_B": 0
+    },
+    "loads": {
+     "MOTOR_A": {
+      "to": "MOTOR_B",
+      "r": 12
+     }
+    },
+    "measure": "i(V12)",
+    "expect": [
+     0.85,
+     1.05
+    ]
+   },
+   {
+    "name": "inputs floating: brake, no motor current",
+    "sources": {
+     "V12": 12
+    },
+    "loads": {
+     "MOTOR_A": {
+      "to": "MOTOR_B",
+      "r": 12
+     }
+    },
+    "measure": "i(V12)",
+    "expect": [
+     0,
+     0.01
+    ]
+   }
+  ],
+  "tier": "harder"
+ },
+ {
+  "id": "bridge_amp_5v",
+  "description": "Single-supply 5 V amplifier for a resistive bridge sensor: a differential gain of about 100 between IN_P and IN_N with high-impedance inputs and good common-mode rejection, using rail-to-rail op-amps, with the output centred at 2.5 V so OUT = 2.5 V + 100 x (IN_P - IN_N). Inputs, output and power on pin headers. Name the nets VCC, GND, IN_P, IN_N and OUT.",
+  "tests": [
+   {
+    "name": "2.5 V with no differential input",
+    "sources": {
+     "VCC": 5,
+     "IN_P": 2.5,
+     "IN_N": 2.5
+    },
+    "measure": "v(OUT)",
+    "expect": [
+     2.4,
+     2.6
+    ]
+   },
+   {
+    "name": "+10 mV in: 3.5 V out",
+    "sources": {
+     "VCC": 5,
+     "IN_P": 2.505,
+     "IN_N": 2.495
+    },
+    "measure": "v(OUT)",
+    "expect": [
+     3.35,
+     3.65
+    ]
+   },
+   {
+    "name": "-10 mV in: 1.5 V out",
+    "sources": {
+     "VCC": 5,
+     "IN_P": 2.495,
+     "IN_N": 2.505
+    },
+    "measure": "v(OUT)",
+    "expect": [
+     1.35,
+     1.65
+    ]
+   },
+   {
+    "name": "common mode at 1.5 V, +5 mV in: 3.0 V out",
+    "sources": {
+     "VCC": 5,
+     "IN_P": 1.5025,
+     "IN_N": 1.4975
+    },
+    "measure": "v(OUT)",
+    "expect": [
+     2.85,
+     3.15
+    ]
+   },
+   {
+    "name": "high input impedance",
+    "sources": {
+     "VCC": 5,
+     "IN_P": 2.5,
+     "IN_N": 2.5
+    },
+    "measure": "i(IN_P)",
+    "expect": [
+     0,
+     1e-06
+    ]
+   }
+  ],
+  "tier": "harder"
+ },
+ {
+  "id": "attiny_sensor_node",
+  "description": "ATtiny85 sensor node running at 3.3 V from a 5 V to 9 V input: an AMS1117-3.3 regulator with input and output capacitors, MCU decoupling and a reset pull-up, a 4-pin I2C header (+3V3, GND, SDA, SCL) with 4.7k pull-ups to +3V3 on SDA (PB0) and SCL (PB2), a 6-pin ISP programming header, and a power LED. Name the nets VIN, +3V3, GND, SDA and SCL.",
+  "tests": [
+   {
+    "name": "+3V3 at 100 mA from 5 V",
+    "sources": {
+     "VIN": 5
+    },
+    "loads": {
+     "+3V3": 33
+    },
+    "measure": "v(+3V3)",
+    "expect": [
+     3.2,
+     3.4
+    ]
+   },
+   {
+    "name": "+3V3 from 9 V",
+    "sources": {
+     "VIN": 9
+    },
+    "measure": "v(+3V3)",
+    "expect": [
+     3.2,
+     3.4
+    ]
+   },
+   {
+    "name": "SDA pull-up 4.7k to +3V3",
+    "sources": {
+     "VIN": 7,
+     "SDA": 0
+    },
+    "measure": "i(SDA)",
+    "expect": [
+     0.0006,
+     0.00078
+    ]
+   },
+   {
+    "name": "SCL pull-up 4.7k to +3V3",
+    "sources": {
+     "VIN": 7,
+     "SCL": 0
+    },
+    "measure": "i(SCL)",
+    "expect": [
+     0.0006,
+     0.00078
+    ]
+   },
+   {
+    "name": "power LED lit, current limited",
+    "sources": {
+     "VIN": 7
+    },
+    "measure": "i(VIN)",
+    "expect": [
+     0.0005,
+     0.015
+    ]
+   }
+  ],
+  "tier": "harder"
+ },
+ {
+  "id": "led_constant_current",
+  "description": "Constant-current driver that keeps three white LEDs in series at 350 mA for any supply from 12 V to 15 V, using an op-amp and an N-channel MOSFET with a 1 ohm current-sense resistor and a zener-based reference (no LED driver IC). Supply on a 2-pin header. Name the nets VIN and GND.",
+  "tests": [
+   {
+    "name": "~350 mA at 12 V",
+    "sources": {
+     "VIN": 12
+    },
+    "measure": "i(VIN)",
+    "expect": [
+     0.325,
+     0.385
+    ]
+   },
+   {
+    "name": "~350 mA at 13.5 V",
+    "sources": {
+     "VIN": 13.5
+    },
+    "measure": "i(VIN)",
+    "expect": [
+     0.325,
+     0.385
+    ]
+   },
+   {
+    "name": "~350 mA at 15 V",
+    "sources": {
+     "VIN": 15
+    },
+    "measure": "i(VIN)",
+    "expect": [
+     0.325,
+     0.385
+    ]
+   }
+  ],
+  "tier": "harder"
+ },
+ {
+  "id": "bandlimited_preamp",
+  "description": "Single 9 V supply audio preamp with a gain of about 10 from 300 Hz to 3 kHz and a band limited by a second-order high-pass filter at about 100 Hz and a second-order low-pass filter at about 8 kHz, using op-amps with a mid-supply bias, AC-coupled input and output, able to drive a 10k load. Name the nets VCC, GND, IN and OUT.",
+  "tests": [
+   {
+    "name": "gain ~10 at 1 kHz",
+    "analysis": "ac",
+    "freq": 1000.0,
+    "sources": {
+     "VCC": 9,
+     "IN": "ac"
+    },
+    "loads": {
+     "OUT": 10000
+    },
+    "measure": "gain(OUT,IN)",
+    "expect": [
+     8.5,
+     11.5
+    ]
+   },
+   {
+    "name": "gain ~10 at 300 Hz",
+    "analysis": "ac",
+    "freq": 300.0,
+    "sources": {
+     "VCC": 9,
+     "IN": "ac"
+    },
+    "loads": {
+     "OUT": 10000
+    },
+    "measure": "gain(OUT,IN)",
+    "expect": [
+     8.0,
+     11.5
+    ]
+   },
+   {
+    "name": "gain ~10 at 3 kHz",
+    "analysis": "ac",
+    "freq": 3000.0,
+    "sources": {
+     "VCC": 9,
+     "IN": "ac"
+    },
+    "loads": {
+     "OUT": 10000
+    },
+    "measure": "gain(OUT,IN)",
+    "expect": [
+     8.0,
+     11.5
+    ]
+   },
+   {
+    "name": "second-order roll-off at 25 Hz",
+    "analysis": "ac",
+    "freq": 25.0,
+    "sources": {
+     "VCC": 9,
+     "IN": "ac"
+    },
+    "loads": {
+     "OUT": 10000
+    },
+    "measure": "gain(OUT,IN)",
+    "expect": [
+     0,
+     1.2
+    ]
+   },
+   {
+    "name": "second-order roll-off at 40 kHz",
+    "analysis": "ac",
+    "freq": 40000.0,
+    "sources": {
+     "VCC": 9,
+     "IN": "ac"
+    },
+    "loads": {
+     "OUT": 10000
+    },
+    "measure": "gain(OUT,IN)",
+    "expect": [
+     0,
+     0.9
+    ]
+   }
+  ],
+  "tier": "harder"
+ }
+]

@@ -1594,8 +1594,9 @@ def normalize(description):
 def _benchmark_briefs():
     import json
     from pathlib import Path
-    path = Path(__file__).parent / "benchmarks" / "boards.json"
-    return {normalize(c["description"]) for c in json.loads(path.read_text())}
+    root = Path(__file__).parent / "benchmarks"
+    return {normalize(c["description"]) for path in (root / "boards.json", root / "harder" / "boards.json")
+            for c in json.loads(path.read_text())}
 
 
 def generate(n, seed=0, families=None, max_misses=50):
