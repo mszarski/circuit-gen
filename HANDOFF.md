@@ -1,5 +1,9 @@
 # Session handoff: circuit_gen
 
+> **Note:** this handoff was written in the old `mszarski/claude_playground` monorepo, before the project moved here.
+> References to that repo, its `claude/...` branches, `trajectory_classifier`, the `bd` tracker, or "don't edit
+> CLAUDE.md" are out of date. Where this file and CLAUDE.md disagree, CLAUDE.md wins.
+
 This file is for a fresh session with none of our earlier conversation. It
 covers `circuit_gen/`, the second project in this repo; `trajectory_classifier/`
 was not touched in this work. Code and results live in `circuit_gen/` and
