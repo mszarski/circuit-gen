@@ -460,8 +460,13 @@ def generate_circuit(description, workdir, backend=None, max_turns=MAX_TURNS, ma
     # The spec writer gets its own conversation so it can revise the spec mid-design.
     if spec_backend is None:
         spec_backend = backend.clone() if hasattr(backend, "clone") else backend
-    if hasattr(spec_backend, "reasoning_effort") and spec_backend is not backend:
-        spec_backend.reasoning_effort = config.SPEC_REASONING_EFFORT or None
+    for b in {id(x): x for x in (spec_backend, review_backend) if x is not None}.values():
+        if b is backend:
+            continue
+        if hasattr(b, "reasoning_effort"):
+            b.reasoning_effort = config.SPEC_REASONING_EFFORT or None
+        if hasattr(b, "max_tokens") and config.SPEC_MAX_TOKENS:
+            b.max_tokens = min(b.max_tokens, config.SPEC_MAX_TOKENS)
     revisions = 0
     stress_rounds = 0
     spec_reqs = []

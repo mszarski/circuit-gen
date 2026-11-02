@@ -223,6 +223,19 @@ def to_code(reqs):
     return "\n".join(lines) + "\n"
 
 
+SPEC_CUT_OFF_NOTE = ("Your last reply ran out of space while you were still reasoning, so nothing "
+                     "was written. Reply now with the require(...) lines. If you cannot see how "
+                     "to test a property from the named nets, leave it out rather than work it "
+                     "out at length.")
+
+
+def _after_cut_off(backend):
+    """Retry a cut-off spec turn at low effort, told to write what it can."""
+    if hasattr(backend, "lower_effort_next_turn"):
+        backend.lower_effort_next_turn()
+    backend.add_user_message(SPEC_CUT_OFF_NOTE)
+
+
 def write_spec(description, backend, workdir, attempts=3):
     """Ask the model for requirements only. Returns (requirements, code) or raises SpecError."""
     backend.start(SPEC_PROMPT, f"Board description:\n\n{description}", [])
@@ -233,6 +246,8 @@ def write_spec(description, backend, workdir, attempts=3):
             f.write(json.dumps({"stop": turn.stop, **turn.record}, default=str) + "\n")
         if turn.stop in ("refusal", "max_tokens"):
             last_error = SpecError(f"spec turn ended with {turn.stop}")
+            if turn.stop == "max_tokens":
+                _after_cut_off(backend)
             continue
         try:
             reqs = parse_requirements(turn.text)
@@ -325,6 +340,8 @@ def _respec(description, backend, workdir, note, filename, attempts):
                                default=str) + "\n")
         if turn.stop in ("refusal", "max_tokens"):
             last_error = SpecError(f"spec revision ended with {turn.stop}")
+            if turn.stop == "max_tokens":
+                _after_cut_off(backend)
             continue
         try:
             reqs = parse_requirements(turn.text)

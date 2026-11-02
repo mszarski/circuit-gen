@@ -177,6 +177,18 @@ class TestLoop:
                                            spec_backend=spec_writer)
         assert not result.spec_covered and result.spec_uncovered == ["1 Hz"]
 
+    def test_cut_off_spec_turn_is_retried_with_a_note(self, tmp_path):
+        spec_writer = ScriptedBackend([Turn(text="", stop="max_tokens"),
+                                       say('```python\nrequire("v(OUT)", 1, 2)\n```')])
+        spec_writer.max_tokens = 65536
+        designer = ScriptedBackend([say("done"), say("done"), say("done")])
+        result = generate.generate_circuit("Name the nets OUT and GND.", tmp_path,
+                                           backend=designer, spec_first=True,
+                                           spec_backend=spec_writer)
+        assert spec_writer.user_messages == [spec.SPEC_CUT_OFF_NOTE]
+        assert spec_writer.max_tokens == generate.config.SPEC_MAX_TOKENS
+        assert (tmp_path / "spec.py").exists() and result.error != "spec phase failed"
+
     def test_long_exploration_is_nudged_to_submit(self, tmp_path, monkeypatch):
         monkeypatch.setattr(generate.library, "search_footprints", lambda q: ["Lib:FP_1"])
         n = generate.SUBMIT_AFTER_TURNS

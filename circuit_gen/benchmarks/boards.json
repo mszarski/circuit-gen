@@ -246,7 +246,7 @@
  },
  {
   "id": "button_debounce",
-  "description": "Push button with RC debouncing feeding a 74HC14 Schmitt-trigger inverter, 5 V supply, output on a 3-pin header. OUT is low while the button is released and high while it is pressed. Name the nets VCC, GND and OUT.",
+  "description": "Push button with RC debouncing feeding a 74HC14 Schmitt-trigger inverter, 5 V supply, output on a 3-pin header. OUT is low while the button is released and high while it is pressed. Name the nets VCC, GND and OUT, and BTN for the button's switched side (pulled up to VCC while released, connected to GND while pressed).",
   "tests": [
    {
     "name": "OUT low with the button released",
@@ -268,6 +268,18 @@
     "expect": [
      0,
      0.002
+    ]
+   },
+   {
+    "name": "OUT high with the button pressed (BTN at 0 V)",
+    "sources": {
+     "VCC": 5,
+     "BTN": 0
+    },
+    "measure": "v(OUT)",
+    "expect": [
+     4.5,
+     5.1
     ]
    }
   ]

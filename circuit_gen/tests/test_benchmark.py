@@ -57,7 +57,9 @@ MUTANTS = [
     ("buffered_reference", "u[3] += div; u[2] += out; u[1] += out", "div += out"),  # unbuffered
     ("inverting_amp", 'inp & C("10u") & cin', 'inp & C("100n") & cin'),   # input corner 160 Hz
     ("i2c_sensor_breakout", 'vcc & R("4.7k") & sda\n', ""),               # missing pull-up
-    ("led_resistor", 'R("330")', 'R("100")'),                             # LED overdriven
+    ("led_resistor", 'R("330")', 'R("100")'),
+    ("button_debounce", 'vcc & R("10k") & btn\n', ""),                    # no pull-up: OUT high released
+    ("button_debounce", "u[1] += din; u[2] += out", "u[1] += din; u[2] += out; din += out"),  # output shorted to its input                             # LED overdriven
     ("instrumentation_amp", 'R("2.2k", tolerance=0.01)', 'R("22k", tolerance=0.01)'),  # gain 19
     ("instrumentation_amp", 'ni & R("100k", tolerance=0.001)', 'ni & R("110k", tolerance=0.001)'),  # CMRR
     ("mfb_bandpass", 'R("4.53k", tolerance=0.01)', 'R("45.3k", tolerance=0.01)'),  # centre moved

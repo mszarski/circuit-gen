@@ -25,6 +25,11 @@ CLAUDE_MODEL = os.environ.get("CIRCUIT_GEN_CLAUDE_MODEL", "claude-opus-5-5")
 # enumeration; at default effort Qwen3.8-27B often deliberated until it hit the
 # provider's 40,960-token cap and wrote nothing. "" leaves the provider default.
 SPEC_REASONING_EFFORT = os.environ.get("CIRCUIT_GEN_SPEC_EFFORT", "low")
+# Reply cap for spec-writer turns. Successful spec replies are under 26k tokens
+# for 99% of turns; DeepSeek-V4.1-Flash ran past 60k on a quarter of its turns
+# when it could not see how to test a property, so a lower cap fails such a
+# turn sooner and the retry asks it to write what it can.
+SPEC_MAX_TOKENS = int(os.environ.get("CIRCUIT_GEN_SPEC_MAX_TOKENS", "24000"))
 # After writing the spec, the writer reviews it against the description for
 # stated properties no requirement covers ("0" turns this off).
 SPEC_REVIEW = os.environ.get("CIRCUIT_GEN_SPEC_REVIEW", "1") != "0"
