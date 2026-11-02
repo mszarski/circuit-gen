@@ -106,6 +106,12 @@ best configuration)**
   1.5–4.5% whatever prompt rules we added. They are spec-coverage misses:
   ranges looser than a property the brief states.
 
+**A2. DeepSeek-V4.1-Flash as designer** (2026-11-02, same setup, 4
+samples, `runs/ds41_bench`, local only): 119/132 (90.2%), the same as the
+27B; hard 100%, false accepts 2 (vs 4), but 5x slower (median 449 s vs 88 s)
+and its spec writer hit the reply cap on `button_debounce` (4/4 lost) and
+one `attiny_blinky`. See `circuit_gen/README.md`.
+
 **B. Single-shot Qwen3-8B, thinking off: SFT warm-up then GRPO**
 
 Each run is one H200, about 2–2.5 h. "Fully correct" means reward 1.0.

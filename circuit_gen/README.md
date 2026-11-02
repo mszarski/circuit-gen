@@ -177,6 +177,28 @@ swapped or a MOSFET fitted backwards) must each fail them
 Results before October 17 used a weaker version: 9 boards had references and
 most boards had a single hidden test, so they may overstate pass rates.
 
+**DeepSeek-V4.1-Flash as the designer, 4 samples per board.** Same
+pipeline and boards as the Qwen3.8-27B run below (each model writes its own
+spec; deepinfra provider):
+
+| designer | passed | standard | hard | solved once / every time | false accepts | median sample |
+|---|---|---|---|---|---|---|
+| Qwen3.8-27B | 119/132 (90.2%) | 91% | 88% | 33 / 22 | 4 | 88 s |
+| DeepSeek-V4.1-Flash | 119/132 (90.2%) | 88% | **100%** | 32 / **26** | **2** | 449 s |
+
+Same pass rate, different failures. DeepSeek solved every hard board every
+time and had half the false accepts (both on `led_bar_3level`, the same
+LED-net misreading the 27B made earlier), but lost all four
+`button_debounce` samples and one `attiny_blinky` before designing: its spec
+writer reasoned past the provider's reply cap (276k characters on one turn,
+working out how to test a button whose input net the brief does not name;
+the low reasoning effort the spec writer asks for did not shorten it). Six
+samples ran out of turns. Without the spec-writer cutoffs it would be at
+about 94%. It is about 5x slower per sample, with a similar token count
+(21.7M in, 12.9M out vs 23.3M and 14.7M) but 3.4x the reasoning per turn.
+The cross-check on its designs flags 1 of its 2 false accepts and 4 of 119
+good designs (3%).
+
 **Cross-checking samples against each other's specs (offline experiment).**
 Each sample writes its own spec, so a spec that misreads the description lets
 a wrong design through. `python -m circuit_gen crosscheck RUN...` re-simulates
