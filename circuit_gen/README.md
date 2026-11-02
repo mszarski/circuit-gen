@@ -191,10 +191,12 @@ consensus requirement is flagged. Results at nominal values:
 | last 4 runs pooled (up to 10 samples a board), consensus >= 80% | **9 / 10** | 25 / 298 (8%) |
 | last 4 runs, design must pass *every* other spec in full | 10 / 10 | 207 / 298 (69%) |
 
-Caught: the blinker at 2 Hz, the line receiver not flat at 10 kHz, the
-reverse-polarity board passing -11 V, the LED bar whose LED nets were
-comparator outputs, both Sallen-Key passband errors and the MFB band-pass.
-Missed: the regulator's LED current (a limit the description never states).
+In the 4-sample run it caught the blinker at 2 Hz, the line receiver not
+flat at 10 kHz and the reverse-polarity board passing -11 V, and missed the
+regulator's LED current (a limit the description never states). Pooled, it
+also caught the LED bars whose LED nets were comparator outputs, both
+Sallen-Key passband errors, the MFB band-pass and the regulator (more samples
+agreed on an LED current), and missed only the mic preamp.
 Requiring a design to pass whole foreign specs is useless: specs also test
 choices the description leaves open (the DC level at an AC-coupled output, a
 supply current, button polarity), and only consensus filters those out. The
