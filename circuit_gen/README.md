@@ -397,6 +397,39 @@ With 2 samples a board, single-board moves under about 0.3 are noise. The
 SFT checkpoint (`OUTPUT_REPO/sft`) is the better benchmark model; GRPO on
 the procgen reward overfits that distribution.
 
+**Held-out families (`RUN=holdout-v1`).** Does any of this generalise? The
+same SFT + GRPO recipe, trained on 24 families, with 7 whole families never
+seen in training (`rldata --holdout-families line_receiver,audio_mixer,
+window_comparator,ce_amplifier,schmitt_oscillator,rs485,buck_regulator`).
+2 samples per board, about 30 boards per unseen family:
+
+| | base | SFT | SFT + GRPO |
+|---|---|---|---|
+| seen families: mean reward | 0.15 | **0.80** | 0.79 |
+| seen families: fully correct | 0% | **54%** | 51% |
+| seen families: hidden tests passed | 5% | **71%** | 69% |
+| unseen families: mean reward | 0.18 | 0.30 | 0.28 |
+| unseen families: fully correct | 3% | **0%** | **0%** |
+| unseen families: hidden tests passed | 6% | 11% | 10% |
+| unseen families: code runs | 48% | 72% | 72% |
+
+Hidden tests passed on each unseen family (base -> SFT -> SFT + GRPO):
+`line_receiver` 4% -> 30% -> 27% and `window_comparator` 3% -> 27% -> 20%
+(both recombine or resemble trained circuits); `audio_mixer` 0 -> 2 -> 5%,
+`schmitt_oscillator` 0 -> 0 -> 1%, `ce_amplifier` 0 -> 0 -> 0%,
+`buck_regulator` 3 -> 0 -> 0%; `rs485` **80% -> 2% -> 10%** (the untrained
+model handled the MAX485; after SFT its code ran only 15% of the time).
+
+Single-shot SFT on procgen code teaches the model to write SKiDL that runs
+and to reproduce the templates it saw, with some carry-over to close
+recombinations. It does not teach circuit design: no unseen-family board
+was fully correct after training, and it damaged what the base model could
+already do with an unfamiliar part. GRPO on this reward changed nothing
+outside noise, seen or unseen. The v3 benchmark gains came from families
+that mirror the benchmark topologies, so the benchmark no longer measures
+generalisation for a model trained on procgen data; report held-out-family
+scores for any training claim.
+
 ### Fine-tuning Qwen3-8B: no gain
 
 LoRA (r=32) on Qwen3-8B with the sets above, one epoch on an H200, did not

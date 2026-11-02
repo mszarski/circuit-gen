@@ -84,27 +84,14 @@ without trusting the model's own claims.
   run 237 passed and 1 skipped before the held-out test was added. The
   procgen family tests are slow; a full run takes about 5–6 min.
 
-### In progress when this was written
-- **HF Job `mszarski/6ae7dea7c78863f9c62ff418`** (run `holdout-v1`) is a
-  held-out families experiment.
-  - **Setup:** trained on 24 families. 7 families never seen in training:
-    - `line_receiver`
-    - `audio_mixer`
-    - `window_comparator`
-    - `ce_amplifier`
-    - `schmitt_oscillator`
-    - `rs485`
-    - `buck_regulator`
-  - **Progress:** base and SFT are scored, and GRPO was training at the
-    1-hour mark.
-  - **Outputs:** results upload to `mszarski/circuit-gen-sft` under
-    `rl_runs/holdout-v1/`; the model goes to `mszarski/qwen3-8b-circuit-holdout`.
-  - **Still to do:** fetch `tuned_*.json`, compare seen vs unseen after
-    GRPO, and write it up in `circuit_gen/README.md`. Section 8 has the
-    commands.
-- **README:** the `holdout-v1` result is **not yet in
-  `circuit_gen/README.md`**, and v3 results are written up there only
-  partly. Section 2's numbers below are the source of truth.
+### Finished since the handoff was written
+- **`holdout-v1`** (HF Job `mszarski/6ae7dea7c78863f9c62ff418`, completed):
+  trained on 24 families, with 7 never seen in training (`line_receiver`,
+  `audio_mixer`, `window_comparator`, `ce_amplifier`, `schmitt_oscillator`,
+  `rs485`, `buck_regulator`). Results are in `rl_runs/holdout-v1/` of
+  `mszarski/circuit-gen-sft`; the model is in `mszarski/qwen3-8b-circuit-holdout`.
+  Results are in section C below and in `circuit_gen/README.md`.
+- Nothing is running now.
 
 ### Latest results
 
@@ -135,23 +122,26 @@ v3: the hard-tier average went 0.80 → 0.60 in v3.
 
 **C. Held-out families (holdout-v1): the key finding**
 
-| | base | SFT |
-|---|---|---|
-| seen families (eval split): reward / fully correct / tests passed | 0.15 / 0% / 5% | **0.80 / 54% / 71%** |
-| **unseen families** (7 held out, 420 samples): reward / fully correct / tests passed | 0.18 / 3% / 6% | **0.30 / 0% / 11%** |
-| benchmark: reward / fully correct | 0.20 / 2% | 0.61 / 30% |
-
-Per unseen family, hidden tests passed, base → SFT:
-
-| family | base | SFT | note |
+| | base | SFT | SFT + GRPO |
 |---|---|---|---|
-| `line_receiver` | 4% | 30% | recombines seen parts (diff-amp stage plus Sallen-Key) |
-| `window_comparator` | 3% | 27% | near relative of the LED bar graph |
-| `audio_mixer` | 0% | 2% | |
-| `schmitt_oscillator` | 0% | 0% | code runs 100% now |
-| `ce_amplifier` | 0% | 0% | |
-| `rs485` | **80%** | **2%** | runs 88% → 15% |
-| `buck_regulator` | 3% | 0% | |
+| seen families (eval split): reward / fully correct / tests passed | 0.15 / 0% / 5% | **0.80 / 54% / 71%** | 0.79 / 51% / 69% |
+| **unseen families** (7 held out, 420 samples): reward / fully correct / tests passed | 0.18 / 3% / 6% | **0.30 / 0% / 11%** | **0.28 / 0% / 10%** |
+| benchmark: reward / fully correct | 0.20 / 2% | 0.61 / 30% | 0.60 / 29% |
+
+Per unseen family, hidden tests passed, base → SFT → SFT + GRPO:
+
+| family | base | SFT | GRPO | note |
+|---|---|---|---|---|
+| `line_receiver` | 4% | 30% | 27% | recombines seen parts (diff-amp stage plus Sallen-Key) |
+| `window_comparator` | 3% | 27% | 20% | near relative of the LED bar graph |
+| `audio_mixer` | 0% | 2% | 5% | |
+| `schmitt_oscillator` | 0% | 0% | 1% | code runs 100% now |
+| `ce_amplifier` | 0% | 0% | 0% | |
+| `rs485` | **80%** | **2%** | 10% | runs 88% → 15% → 15% |
+| `buck_regulator` | 3% | 0% | 0% | |
+
+GRPO (120 steps) changed nothing outside noise, on seen or unseen families.
+On its training prompts, fully-correct batches swung between 6% and 84%, mostly 50–80%.
 
 **Conclusion:**
 - SFT teaches two things: writing SKiDL that runs, and the specific
@@ -160,6 +150,8 @@ Per unseen family, hidden tests passed, base → SFT:
   base model could do with parts it never trained on.
 - The benchmark gains in v3 came from adding families that mirror the
   benchmark boards (see Decisions).
+- GRPO on the single-shot reward does not generalise better than SFT: it
+  does nothing for unseen families, and does not repair the RS-485 damage.
 - The user raised this suspicion ("every time we add a family it's not good
   at it?"), and the held-out test confirmed it.
 
@@ -376,13 +368,7 @@ weakness)**
 
 ## 7. Next steps (priority order)
 
-1. **Finish `holdout-v1`.**
-   - Fetch `rl_runs/holdout-v1/tuned_*.json` and compare unseen vs seen
-     after GRPO: does RL generalise better than SFT?
-   - Break results down per family (ids start with the family name; some
-     have an `n8_` prefix).
-   - Write it up in `circuit_gen/README.md`, plus the v3 numbers. Commit.
-2. **Decide the 8B track's future** with the user. The evidence says
+1. **Decide the 8B track's future** with the user. The evidence says
    single-shot SFT/GRPO on templates doesn't build skill. Options:
    - a. **Train the process, not the answer:** multi-turn sessions (spec →
      calculate → simulate → fix) distilled from a strong model, with
@@ -394,20 +380,20 @@ weakness)**
    - c. If training continues, always report **held-out-family** scores. Stop
      deriving families from benchmark boards, or build a fresh hidden
      benchmark.
-3. **False accepts in the 27B pipeline** (about 3%, all spec-coverage
+2. **False accepts in the 27B pipeline** (about 3%, all spec-coverage
    misses).
    - Ideas: a second, independent spec writer to diff against.
    - Or property extraction from the brief, so every number in the
      description must map to a requirement.
-4. **Benchmark hygiene:**
+3. **Benchmark hygiene:**
    - a fresh hidden board set never used to design procgen families;
    - more samples per board (4+) for decisions.
-5. **Optional manufacturing step:** `easyeda2kicad` for real LCSC parts, plus
+4. **Optional manufacturing step:** `easyeda2kicad` for real LCSC parts, plus
    a JLCPCB BOM/CPL export. Needs those hosts allowlisted in the environment.
 
 **Open questions**
-- Does GRPO transfer to unseen families better than SFT? Pending
-  `holdout-v1`.
+- Answered: GRPO does not transfer to unseen families better than SFT
+  (`holdout-v1`: 0% fully correct on unseen families after either).
 - Is the base 8B's strength on new chips (RS-485 80%) something to preserve
   with a KL/anchor or a smaller LoRA learning rate if training continues?
 - Is the 8B track worth more money, given the 27B pipeline already reaches
@@ -483,7 +469,7 @@ Jobs:
 | v1 | `6ae691650e0338d1bb7d5096` | done |
 | v2 | `6ae6b47ec78863f9c62f6fac` | done |
 | v3 | `6ae6fdf6c78863f9c62f85b5` | done |
-| holdout-v1 | `6ae7dea7c78863f9c62ff418` | running |
+| holdout-v1 | `6ae7dea7c78863f9c62ff418` | done |
 
 The `claude_teacher_*` jobs on the account belong to a different project.
 
