@@ -153,6 +153,12 @@ def cmd_compare(args):
     return 0
 
 
+def cmd_crosscheck(args):
+    from .crosscheck import report
+    print(report(args.runs, support=args.support, jobs=args.jobs, corners=args.corners))
+    return 0
+
+
 def main(argv=None):
     p = argparse.ArgumentParser(prog="circuit_gen", description=__doc__,
                                 formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -223,6 +229,14 @@ def main(argv=None):
     c = sub.add_parser("compare", help="side-by-side pass rates of several eval runs")
     c.add_argument("runs", nargs="+", help="eval output directories")
 
+    x = sub.add_parser("crosscheck", help="re-simulate accepted designs against the other "
+                                          "samples' specs to flag likely false accepts (offline)")
+    x.add_argument("runs", nargs="+", help="eval output directories (pooled per board)")
+    x.add_argument("--support", type=float, default=0.6,
+                   help="share of other accepted designs that must pass a requirement")
+    x.add_argument("--jobs", type=int, default=4)
+    x.add_argument("--corners", action="store_true", help="check at tolerance corners too")
+
     for s in (b, d, e):
         s.add_argument("-o", "--out", required=True, help="output directory")
         s.add_argument("--passes", type=int, default=30, help="max FreeRouting passes")
@@ -251,7 +265,7 @@ def main(argv=None):
 
     args = p.parse_args(argv)
     return {"build": cmd_build, "design": cmd_design, "eval": cmd_eval,
-            "compare": cmd_compare, "datagen": cmd_datagen, "export": cmd_export,
+            "compare": cmd_compare, "crosscheck": cmd_crosscheck, "datagen": cmd_datagen, "export": cmd_export,
             "procgen": cmd_procgen, "schematic": cmd_schematic, "rldata": cmd_rldata,
             "rleval": cmd_rleval}[args.cmd](args)
 

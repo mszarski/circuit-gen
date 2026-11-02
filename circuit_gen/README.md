@@ -177,6 +177,33 @@ swapped or a MOSFET fitted backwards) must each fail them
 Results before October 17 used a weaker version: 9 boards had references and
 most boards had a single hidden test, so they may overstate pass rates.
 
+**Cross-checking samples against each other's specs (offline experiment).**
+Each sample writes its own spec, so a spec that misreads the description lets
+a wrong design through. `python -m circuit_gen crosscheck RUN...` re-simulates
+every accepted design against the other samples' frozen requirements for the
+same board (ngspice only, no model calls). A requirement counts as consensus
+when at least 60% of the other accepted designs pass it. A design failing a
+consensus requirement is flagged. Results at nominal values:
+
+| samples pooled | false accepts flagged | good designs flagged |
+|---|---|---|
+| 4-sample run alone (`q27_bench_v6`) | **3 / 4** | 12 / 119 (10%) |
+| last 4 runs pooled (up to 10 samples a board), consensus >= 80% | **9 / 10** | 25 / 298 (8%) |
+| last 4 runs, design must pass *every* other spec in full | 10 / 10 | 207 / 298 (69%) |
+
+Caught: the blinker at 2 Hz, the line receiver not flat at 10 kHz, the
+reverse-polarity board passing -11 V, the LED bar whose LED nets were
+comparator outputs, both Sallen-Key passband errors and the MFB band-pass.
+Missed: the regulator's LED current (a limit the description never states).
+Requiring a design to pass whole foreign specs is useless: specs also test
+choices the description leaves open (the DC level at an AC-coupled output, a
+supply current, button polarity), and only consensus filters those out. The
+good designs still flagged are mostly such choices that every other sample
+happened to share. Flagging is not discarding: in the pipeline a flagged
+design would go back to the designer with the disputed requirement. Not yet
+built into `design`/`eval`; it needs several samples per board, so about N
+times the API cost.
+
 **Current result, 4 samples per board (November 4).** Qwen3.8-27B, spec-first
 with self-review and the "ranges must reject a wrong circuit" rule, all 33
 boards: **119/132 (90%)**, standard 91%, hard 88%, every board solved at least

@@ -391,9 +391,18 @@ weakness)**
      net's role (LED anode vs comparator output), a spec expecting the
      wrong behaviour (reverse polarity passing through), qualitative words
      ("flat in the audio band"), limits the description never states.
-   - Next idea: a second, independent spec writer to diff against, or a
-     check that each named net is measured in the role the description
-     gives it. Measure with a 4-sample benchmark run (paid; ask first).
+   - **Cross-checking samples' specs works** (offline, free:
+     `python -m circuit_gen crosscheck RUN...`, `circuit_gen/crosscheck.py`).
+     A requirement is consensus when >= 60% of the other accepted designs
+     pass it; a design failing one is flagged. On `q27_bench_v6` alone (4
+     samples a board): 3/4 false accepts flagged, 10% of good designs
+     flagged. Pooled over 4 runs at >= 80%: 9/10 and 8%. Whole-spec
+     cross-checking flags 69% of good designs: specs test choices the
+     description leaves open, so only consensus works.
+   - Next: build it into `design`/`eval` (N parallel spec+design samples;
+     a flagged design goes back to its designer with the consensus
+     requirement), then measure with a 4-sample benchmark run (paid; ask
+     first). Costs about N times the API calls per board.
 3. **Benchmark hygiene:**
    - a fresh hidden board set never used to design procgen families;
    - more samples per board (4+) for decisions.
