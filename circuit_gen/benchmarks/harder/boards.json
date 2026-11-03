@@ -83,7 +83,7 @@
  },
  {
   "id": "current_sense",
-  "description": "Low-side current monitor for a load of up to 2 A on a 12 V supply: a 0.05 ohm shunt resistor between LOAD_NEG and GND and an op-amp on a separate 5 V supply (VCC) amplifying the shunt voltage so that OUT reads 1 V per amp of load current, with about 1 kHz of filtering. The load connects between V12 and LOAD_NEG. Name the nets V12, VCC, GND, LOAD_NEG and OUT.",
+  "description": "Low-side current monitor for a load of up to 2 A on a 12 V supply: a 0.05 ohm shunt resistor between LOAD_NEG and GND and an op-amp on a separate 5 V supply (VCC) amplifying the shunt voltage so that OUT reads 1 V per amp of load current. The load connects between V12 and LOAD_NEG. Name the nets V12, VCC, GND, LOAD_NEG and OUT.",
   "tests": [
    {
     "name": "1 V at 1 A",

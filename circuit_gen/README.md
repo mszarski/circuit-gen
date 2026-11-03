@@ -199,6 +199,34 @@ about 94%. It is about 5x slower per sample, with a similar token count
 The cross-check on its designs flags 1 of its 2 false accepts and 4 of 119
 good designs (3%).
 
+**Harder benchmark (`benchmarks/harder/`, 10 boards, 4 samples each).** Ten
+multi-stage boards none of the procgen families mirror: 4th-order Butterworth,
+low-side current sense, dual LDO rails with reverse protection, buck plus
+LDO, 555 PWM LED dimmer, discrete H-bridge, single-supply bridge amplifier,
+ATtiny85 sensor node, op-amp constant-current LED driver and a band-limited
+preamp. Each has a reference, 3-6 hidden tests and 14 mutants between them.
+
+| designer | passed | without current_sense | false accepts | median sample |
+|---|---|---|---|---|
+| Qwen3.8-27B | 28/40 (70%) | 28/36 (78%) | **0** | 1826 s |
+| DeepSeek-V4.1-Flash | 29/40 (72.5%) | 29/36 (81%) | 3 | 438 s |
+
+Both solve the power, logic and MCU boards (dual LDO, H-bridge, ATtiny node,
+constant-current LED: 4/4 each). DeepSeek handles the switching regulator
+(`buck_ldo` 3/4 vs 0/4: the 27B kept simulating to work out the LM2596
+model's pins and stopped without submitting); the 27B is more careful with
+precise analog (`butterworth_lp4` 4/4 vs 2/4, where DeepSeek's two false
+accepts had the -3 dB point at 0.81 and, marginally, 0.619 against 0.62).
+`bandlimited_preamp` is the hardest board (1/4 each). The 27B times are
+inflated by a slow provider on that day.
+
+`current_sense` was unfair to both (0/4 each) and its description has since
+been fixed: it promised "about 1 kHz of filtering", which every spec writer
+tested with an AC gain, but with no load current the single-supply op-amp
+sits at its bottom rail and the simulator then reports zero small-signal
+gain. Three samples disputed the requirement correctly. The brief now
+states only the 1 V per amp scale its hidden tests check.
+
 **Cross-checking samples against each other's specs (offline experiment).**
 Each sample writes its own spec, so a spec that misreads the description lets
 a wrong design through. `python -m circuit_gen crosscheck RUN...` re-simulates

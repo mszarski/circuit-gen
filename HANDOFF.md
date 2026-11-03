@@ -112,6 +112,15 @@ samples, `runs/ds41_bench`, local only): 119/132 (90.2%), the same as the
 and its spec writer hit the reply cap on `button_debounce` (4/4 lost) and
 one `attiny_blinky`. See `circuit_gen/README.md`.
 
+**A3. Harder benchmark** (`circuit_gen/benchmarks/harder/`, 10 boards, 4
+samples; `runs/harder_q27`, `runs/harder_ds41`, local only): 27B 28/40 (70%,
+0 false accepts), DeepSeek-V4.1-Flash 29/40 (72.5%, 3 false accepts).
+DeepSeek wins the buck converter, the 27B the 4th-order filter.
+`current_sense` scored 0/4 for both because of an AC-at-the-rail simulator
+trap; its brief was fixed after these runs, so rerun it before comparing.
+Open issue: an op-amp at a rail at the DC operating point gives zero AC gain,
+which confuses spec writers; the LM2596 model's pins confused the 27B.
+
 **B. Single-shot Qwen3-8B, thinking off: SFT warm-up then GRPO**
 
 Each run is one H200, about 2–2.5 h. "Fully correct" means reward 1.0.
