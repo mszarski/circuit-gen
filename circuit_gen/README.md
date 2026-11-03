@@ -225,7 +225,11 @@ been fixed: it promised "about 1 kHz of filtering", which every spec writer
 tested with an AC gain, but with no load current the single-supply op-amp
 sits at its bottom rail and the simulator then reports zero small-signal
 gain. Three samples disputed the requirement correctly. The brief now
-states only the 1 V per amp scale its hidden tests check.
+states only the 1 V per amp scale its hidden tests check, AC sources can carry
+a DC level (`{"ac": 1, "dc": 0.05}`), and an AC test that reads zero because
+an op-amp is pinned at a rail says so. Re-run with these fixes, both models
+solve `current_sense` 4/4 (one 27B sample used a biased AC source), so the
+totals become **DeepSeek 33/40 (82.5%)** and **27B 32/40 (80%)**.
 
 **Cross-checking samples against each other's specs (offline experiment).**
 Each sample writes its own spec, so a spec that misreads the description lets

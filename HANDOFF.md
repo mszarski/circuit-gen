@@ -117,9 +117,10 @@ samples; `runs/harder_q27`, `runs/harder_ds41`, local only): 27B 28/40 (70%,
 0 false accepts), DeepSeek-V4.1-Flash 29/40 (72.5%, 3 false accepts).
 DeepSeek wins the buck converter, the 27B the 4th-order filter.
 `current_sense` scored 0/4 for both because of an AC-at-the-rail simulator
-trap; its brief was fixed after these runs, so rerun it before comparing.
-Open issue: an op-amp at a rail at the DC operating point gives zero AC gain,
-which confuses spec writers; the LM2596 model's pins confused the 27B.
+trap. Fixed (brief, biased AC sources, a rail hint on zero AC gain, an LM2596
+pin note in the designer prompt) and re-run: 4/4 for both (`runs/cs_ds41`,
+`runs/cs_q27`), so totals are DeepSeek 33/40 (82.5%), 27B 32/40 (80%).
+`buck_ldo` has not been re-run with the LM2596 pin note.
 
 **B. Single-shot Qwen3-8B, thinking off: SFT warm-up then GRPO**
 
