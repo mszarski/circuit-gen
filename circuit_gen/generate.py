@@ -77,11 +77,17 @@ Requirements:
   time high) and iavg(NET) (average current magnitude in the source on NET) \
   are taken over the last quarter of the run, after start-up. A switching \
   regulator needs a few milliseconds, e.g. duration=0.008.
-- sources: voltage sources from nets to ground, e.g. {"VCC": 5, "IN": "ac"}.
+- sources: voltage sources from nets to ground, e.g. {"VCC": 5, "IN": "ac"}. \
+  An AC source can ride on a DC level, {"IN": {"ac": 1, "dc": 0.1}}: AC \
+  analysis linearises around the DC operating point, so a single-supply \
+  stage whose output sits at a rail there shows no gain.
 - loads: resistors from a net to ground, e.g. {"OUT": 10000}, or to another \
   net, e.g. {"LOAD_NEG": {"to": "V12", "r": 12}}.
 - Generic models are used: R/C/L, diodes and LEDs, op-amps, fixed linear \
-  regulators, fixed-output LM2596 buck regulators (switching at 150 kHz), \
+  regulators, fixed-output LM2596 buck regulators (switching at 150 kHz; \
+  VIN is the input, OUT is the switch node that goes to the inductor and the \
+  Schottky catch diode's cathode, FB connects to the regulated output after \
+  the inductor, GND and ON/OFF go to ground; test it with analysis="tran"), \
   MOSFETs, BJTs, 555 timers and CMOS logic gates (Schmitt-trigger parts such \
   as the 74HC14 switch at about 0.55 and 0.33 Vcc). Parts without \
   a model (e.g. MCUs) are left out, so only require what the modelled parts \

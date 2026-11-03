@@ -8,7 +8,7 @@ import pytest
 
 from circuit_gen import checks, library, spice
 
-from conftest import needs_libs
+from conftest import needs_libs, needs_skidl
 
 needs_ngspice = pytest.mark.skipif(shutil.which("ngspice") is None, reason="ngspice not installed")
 
@@ -290,3 +290,20 @@ def test_tolerance_hint_when_only_corners_fail():
     assert "only tolerance corners fail" in corner.describe()
     wrong = TestResult(name="f", passed=False, value=1600, expect=[750, 1250], spread=[1500, 1700])
     assert "tolerance corners" not in wrong.describe()
+
+
+@needs_ngspice
+@needs_skidl
+def test_ac_gain_at_a_rail_gets_a_hint_and_a_biased_source_measures_it(tmp_path):
+    from pathlib import Path
+    from circuit_gen.runner import run_circuit_code
+    bench = Path(spice.__file__).parent / "benchmarks"
+    code = ((bench / "reference" / "_parts.py").read_text() + "\n"
+            + (bench / "harder" / "reference" / "current_sense.py").read_text())
+    circuit = run_circuit_code(code, tmp_path).circuit
+    base = {"analysis": "ac", "freq": 100.0, "measure": "gain(OUT,LOAD_NEG)", "expect": [15, 25]}
+    plain = {**base, "sources": {"VCC": 5, "LOAD_NEG": "ac"}}         # op-amp output at 0 V
+    biased = {**base, "sources": {"VCC": 5, "LOAD_NEG": {"ac": 1, "dc": 0.05}}}
+    stuck, ok = spice.simulate(circuit, [plain, biased]).results
+    assert not stuck.passed and "supply rail" in stuck.describe() and '"dc"' in stuck.describe()
+    assert ok.passed and 19 < ok.value < 21

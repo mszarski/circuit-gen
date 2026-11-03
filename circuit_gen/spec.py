@@ -33,7 +33,10 @@ in the source on NET, all over the last quarter of the run after start-up (a \
 switching regulator needs a few milliseconds, e.g. duration=0.008). In AC analysis every measure is a \
 magnitude: gain() is never negative, so an inverting gain of -10 is 9 to 11.
 - sources: voltage sources from nets to ground, e.g. {"VCC": 5, "IN": "ac"}. \
-A net without a source is left floating (useful for "input left open" cases).
+A net without a source is left floating (useful for "input left open" cases). \
+An AC source can ride on a DC level, {"IN": {"ac": 1, "dc": 0.1}}: AC analysis \
+linearises around the DC operating point, so a single-supply stage whose \
+output sits at a supply rail there (e.g. with 0 V at its input) shows no gain.
 - loads: resistors from a net to ground, e.g. {"OUT": 10000}, or between \
 nets, e.g. {"LOAD_NEG": {"to": "V12", "r": 12}}.
 - Use only the net names the description gives; internal nets do not exist yet.

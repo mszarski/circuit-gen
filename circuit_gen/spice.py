@@ -369,6 +369,7 @@ class TestResult:
     expect: list | None = None
     error: str | None = None
     spread: list | None = None      # [min, max] over tolerance corners, when run
+    hint: str | None = None         # why a failure may be the test bench, not the circuit
 
     def describe(self):
         if self.error:
@@ -382,6 +383,8 @@ class TestResult:
             text += (" -- the nominal value passes and only tolerance corners fail: use "
                      "closer-tolerance parts (tolerance=0.01 on resistors, 0.05 on capacitors) "
                      "or move the nominal value towards the middle of the range")
+        if not self.passed and self.hint:
+            text += " -- " + self.hint
         return text
 
 
@@ -404,6 +407,10 @@ def _testbench(nl, test):
         n = node(net)
         if spec == "ac":
             lines.append(f"V_{n} {n} 0 DC 0 AC 1")
+        elif isinstance(spec, dict) and "ac" in spec:
+            # An AC source riding on a DC level, so a single-supply stage can be
+            # biased into its linear range: {"ac": 1, "dc": 0.1}.
+            lines.append(f"V_{n} {n} 0 DC {float(spec.get('dc', 0))} AC {float(spec['ac'])}")
         else:
             lines.append(f"V_{n} {n} 0 DC {float(spec)}")
     for i, (net, spec) in enumerate(test.get("loads", {}).items()):
@@ -547,7 +554,56 @@ def run_test(nl, test, timeout=60, corners=False):
     lo, hi = test["expect"]
     spread = [min(values), max(values)] if corners else None
     passed = all(lo <= v <= hi for v in values)
-    return TestResult(name=name, passed=passed, value=values[0], expect=[lo, hi], spread=spread)
+    hint = None
+    if not passed and test.get("analysis") == "ac" and abs(values[0]) < max(1e-3, 1e-3 * hi):
+        hint = _rail_hint(nl, test, timeout)
+    return TestResult(name=name, passed=passed, value=values[0], expect=[lo, hi], spread=spread,
+                      hint=hint)
+
+
+_OPAMP_LINE = re.compile(r"^X(\S+)_(\d+) (\S+) (\S+) (\S+) (\S+) (\S+) CG_OPAMP$")
+
+
+def _rail_hint(nl, test, timeout=60):
+    """Why an AC gain reads zero: an op-amp output pinned at a supply rail at the DC point.
+
+    AC analysis linearises around the DC operating point; a saturated op-amp has
+    no small-signal gain there, however good the circuit is at other levels.
+    """
+    amps = [m.groups() for m in map(_OPAMP_LINE.match, nl.lines) if m]
+    if not amps:
+        return None
+    nets = [net for net in test.get("sources", {}) if not is_ground(net)]
+    if not nets:
+        return None
+    try:
+        tb, _, _ = _testbench(nl, {**test, "analysis": "op", "measure": f"v({nets[0]})"})
+    except (KeyError, ValueError):
+        return None
+    probes = sorted({n for _, _, _, _, out, vp, vn in amps for n in (out, vp, vn)
+                     if n != "0" and not n.startswith("nc_")})
+    control = ["op"] + [f"print v({n})" for n in probes]
+    try:
+        out = _run_deck(nl, tb, control, timeout)
+    except subprocess.TimeoutExpired:
+        return None
+    volts = {k.lower(): float(v) for k, v in re.findall(r"v\((\S+?)\)\s*=\s*([-+0-9.eE]+)", out)}
+    volts["0"] = 0.0
+    stuck = []
+    for ref, unit, _, _, o, vp, vn in amps:
+        vo, hi, lo = (volts.get(n.lower()) for n in (o, vp, vn))
+        if None in (vo, hi, lo):
+            continue
+        if vo - lo < 0.1 or hi - vo < 0.1:
+            stuck.append(f"{ref} section {unit} (output {vo:.3g} V, supplies {lo:.3g}..{hi:.3g} V)")
+    if not stuck:
+        return None
+    verb = "sit" if len(stuck) > 1 else "sits"
+    return ("op-amp " + ", ".join(stuck) + f" {verb} at a supply rail at this test's DC "
+            "operating point, and AC analysis has no small-signal gain there: give the AC source a DC "
+            "level that puts the stage in its linear range, e.g. "
+            "sources={\"IN\": {\"ac\": 1, \"dc\": 0.1}}, or apply the bias with another "
+            "source or load")
 
 
 def sweep(nl, test, mode="ac", start=10.0, stop=1e6, points=21, source=None, timeout=120):
