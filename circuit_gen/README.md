@@ -228,8 +228,12 @@ gain. Three samples disputed the requirement correctly. The brief now
 states only the 1 V per amp scale its hidden tests check, AC sources can carry
 a DC level (`{"ac": 1, "dc": 0.05}`), and an AC test that reads zero because
 an op-amp is pinned at a rail says so. Re-run with these fixes, both models
-solve `current_sense` 4/4 (one 27B sample used a biased AC source), so the
-totals become **DeepSeek 33/40 (82.5%)** and **27B 32/40 (80%)**.
+solve `current_sense` 4/4 (one 27B sample used a biased AC source). With a
+note on how the LM2596 model's pins connect added to the designer prompt,
+`buck_ldo` re-run gives the 27B 4/4 (was 0/4; 5-7 design turns each) and
+DeepSeek 3/4 (unchanged; one sample ran out of turns). Totals with both
+fixes: **Qwen3.8-27B 36/40 (90%), 0 false accepts; DeepSeek-V4.1-Flash
+33/40 (82.5%), 3 false accepts.**
 
 **Cross-checking samples against each other's specs (offline experiment).**
 Each sample writes its own spec, so a spec that misreads the description lets

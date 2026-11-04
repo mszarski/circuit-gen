@@ -119,8 +119,10 @@ DeepSeek wins the buck converter, the 27B the 4th-order filter.
 `current_sense` scored 0/4 for both because of an AC-at-the-rail simulator
 trap. Fixed (brief, biased AC sources, a rail hint on zero AC gain, an LM2596
 pin note in the designer prompt) and re-run: 4/4 for both (`runs/cs_ds41`,
-`runs/cs_q27`), so totals are DeepSeek 33/40 (82.5%), 27B 32/40 (80%).
-`buck_ldo` has not been re-run with the LM2596 pin note.
+`runs/cs_q27`). `buck_ldo` re-run with the LM2596 pin note (`runs/buck_*`):
+27B 4/4 (was 0/4), DeepSeek 3/4. Totals: **27B 36/40 (90%, 0 false
+accepts), DeepSeek 33/40 (82.5%, 3 false accepts).** Both 27B "wins" came
+from fixing the tool's documentation and simulator, not the model.
 
 **B. Single-shot Qwen3-8B, thinking off: SFT warm-up then GRPO**
 
