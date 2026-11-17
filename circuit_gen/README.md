@@ -574,10 +574,21 @@ against about 120 varied ones. Things to know before trying again:
 - A model that repeats an identical tool call is told so in the result from
   the second time on; small models otherwise loop on one lookup until they
   run out of turns.
-- Placement is a simple greedy heuristic: parts are not rotated, decoupling
-  caps are not forced next to their IC pins, and there is no ground pour. All
-  nets are routed as 0.25 mm tracks, so it is not suitable for high-current or
-  high-speed boards.
+- Layout follows three electrical rules (`layout/quality.py`, since November
+  17). Each IC supply pin's smallest capacitor to ground is placed at that
+  pin: on the 43 reference boards the median pad-to-pad distance is 3.1 mm
+  (was 10.0 mm to the nearest capacitor), and `report.json` lists every
+  distance under `placement.decoupling_mm`. Supply, ground and load-current
+  nets (inductors, power MOSFETs, shunts, Schottky diodes) are routed at
+  0.5 mm with 0.8 mm vias, signals at 0.25 mm. Both copper layers get a
+  ground pour after routing. All 43 references still route completely with
+  0 DRC errors, and total board area fell by a third (part boxes no longer
+  include the unprinted value text).
+- Placement is still a greedy heuristic: parts are not rotated, there is no
+  thermal or high-voltage spacing, and track widths are two fixed classes, not
+  sized from each net's current. FreeRouting leaves short dangling track stubs
+  on some boards (a DRC warning, present before these changes). Not suitable
+  for high-speed or mains boards. No generated board has been fabricated.
 - Simulation uses generic models, so it checks the circuit topology and
   values, not a specific part's datasheet limits (e.g. a MOSFET's real
   threshold voltage). The op-amp model's output current is not drawn from its

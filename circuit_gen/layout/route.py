@@ -108,8 +108,51 @@ def apply_session(board, ses_path):
     return n_tracks, n_vias
 
 
-def route_board(board, workdir, max_passes=30, attempts=3):
+# Net names may be quoted and contain brackets, e.g. "Net-(R1-Pad1)".
+_DSN_CLASS = re.compile(r'\(class kicad_default ""(?P<nets>(?:"[^"]*"|[^()"])*)\(circuit')
+
+
+def widen_power_nets(dsn_path, nets, width_mm, via_diameter_mm, via_drill_mm, clearance_mm=0.2):
+    """Move `nets` into their own class in a Specctra DSN file, with wider tracks and vias.
+
+    KiCad 7's exporter puts every net in one class whatever the board's net
+    classes say, so the class is written here. Returns the nets moved.
+    """
+    text = Path(dsn_path).read_text()
+    m = _DSN_CLASS.search(text)
+    if not m or not nets:
+        return []
+    tokens = re.findall(r'"[^"]*"|\S+', m.group("nets"))
+    power = [t for t in tokens if t.strip('"') in nets]
+    if not power:
+        return []
+    rest = [t for t in tokens if t not in power]
+    via = f"Via[0-1]_{round(via_diameter_mm * 1000)}:{round(via_drill_mm * 1000)}_um"
+    if via not in text:
+        # Declare the larger via: a copy of the default padstack with the new diameter.
+        default = re.search(r'\(padstack "?(Via\[0-1\]_(\d+):\d+_um)"?(?P<body>.*?)\n    \)\n', text, re.S)
+        if default:
+            body = default.group("body").replace(f"0 0 {default.group(2)}", "0 0 %d" % round(via_diameter_mm * 1000))
+            body = re.sub(r"\(circle (\S+) [\d.]+", lambda c: f"(circle {c.group(1)} {round(via_diameter_mm * 1000)}", body)
+            text = text.replace(default.group(0), default.group(0) + f'    (padstack "{via}"{body}\n    )\n', 1)
+        else:
+            via = None
+    block = (f'(class power {" ".join(power)}\n      (circuit\n        (use_via {via})\n      )\n'
+             if via else f'(class power {" ".join(power)}\n')
+    block += (f"      (rule\n        (width {round(width_mm * 1000)})\n"
+              f"        (clearance {clearance_mm * 1000 + 0.1:.1f})\n      )\n    )\n    ")
+    start, end = _DSN_CLASS.search(text).span("nets")     # the padstack insert moved it
+    text = text[:start] + (" " + " ".join(rest) + "\n      " if rest else "\n      ") + text[end:]
+    m = _DSN_CLASS.search(text)
+    text = text[:m.start()] + block + text[m.start():]
+    Path(dsn_path).write_text(text)
+    return [t.strip('"') for t in power]
+
+
+def route_board(board, workdir, max_passes=30, attempts=3, power_nets=(), rules=None):
     """Export, route and re-import. Modifies `board` in place.
+
+    `power_nets` are routed with the rules' power track width and via size.
 
     FreeRouting is multi-threaded and not deterministic: it occasionally leaves
     a connection unrouted that a second run completes. It is rerun up to
@@ -119,6 +162,9 @@ def route_board(board, workdir, max_passes=30, attempts=3):
     dsn = workdir / "board.dsn"
     if not pcbnew.ExportSpecctraDSN(board, str(dsn)):
         return RouteResult(ok=False, error="DSN export failed")
+    if power_nets and rules is not None:
+        widen_power_nets(dsn, set(power_nets), rules.power_track_width,
+                         rules.power_via_diameter, rules.power_via_drill, rules.clearance)
     best = None              # (unrouted, ses path)
     last_error = None
     for attempt in range(1, attempts + 1):

@@ -20,20 +20,34 @@ SIM_STAGE = "simulation"   # only when the board has functional tests
 def _layout(circuit, out_dir, report, max_passes):
     # pcbnew is imported here so the circuit stages work without KiCad's Python module.
     import pcbnew
-    from .layout.board import build_board, board_size_mm
+    from .layout.board import (BoardRules, add_ground_pour, build_board, board_size_mm,
+                               decoupling_distances, fill_zones)
+    from .layout.quality import power_nets
     from .layout.route import route_board, run_drc, export_outputs
 
-    board, items = build_board(circuit)
-    w, h = board_size_mm(items)
-    report["stages"]["placement"] = {"ok": True, "board_mm": [round(w, 1), round(h, 1)]}
+    rules = BoardRules()
+    board, items = build_board(circuit, rules)
+    w, h = board_size_mm(items, rules)
+    decoupling = decoupling_distances(board, circuit)
+    report["stages"]["placement"] = {
+        "ok": True, "board_mm": [round(w, 1), round(h, 1)],
+        # Pad-to-pad distance from each IC supply pin to its decoupling capacitor.
+        "decoupling_mm": {f"{d['cap']}->{d['ic']}.{d['pin']}": d["mm"] for d in decoupling}}
     pcbnew.SaveBoard(str(out_dir / "placed.kicad_pcb"), board)
 
-    routed = route_board(board, out_dir, max_passes=max_passes)
-    report["stages"]["routing"] = asdict(routed)
+    wide = sorted(power_nets(circuit))
+    routed = route_board(board, out_dir, max_passes=max_passes, power_nets=wide, rules=rules)
+    report["stages"]["routing"] = {**asdict(routed), "power_nets": wide,
+                                   "power_track_mm": rules.power_track_width,
+                                   "signal_track_mm": rules.track_width}
     if not routed.ok:
         return
+    pour = add_ground_pour(board, rules) if rules.ground_pour else None
+    report["stages"]["routing"]["ground_pour"] = pour
     board_path = out_dir / "board.kicad_pcb"
     pcbnew.SaveBoard(str(board_path), board)
+    if pour:
+        fill_zones(board_path)
 
     drc = run_drc(board_path, out_dir / "drc.rpt")
     report["stages"]["drc"] = {"ok": drc.ok, "errors": drc.errors, "warnings": drc.warnings,

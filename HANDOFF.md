@@ -29,7 +29,9 @@ DRC-clean, Gerbers).
    - KiCad electrical rules check (ERC);
    - SPICE requirement tests in ngspice, with behavioural models, at
      component tolerance corners.
-3. A greedy placer, then FreeRouting, then KiCad DRC, then Gerbers.
+3. A greedy placer (decoupling capacitors anchored at their IC supply pin),
+   FreeRouting with 0.5 mm power tracks, a ground pour on both layers, then
+   KiCad DRC and Gerbers (`layout/quality.py`, added 2026-11-17).
 
 **Why:** let a model design small real boards, and *know* whether they work,
 without trusting the model's own claims.

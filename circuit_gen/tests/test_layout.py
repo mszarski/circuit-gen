@@ -139,3 +139,88 @@ def test_routing_retries_until_complete(tmp_path, monkeypatch):
     result = route.route_board(pcbnew.BOARD(), tmp_path)
     assert len(calls) == 2                      # stopped once fully routed
     assert result.unrouted == 0 and applied == [calls[1]]
+
+
+class TestLayoutQuality:
+    """Decoupling capacitors at their IC pin, wide power tracks, ground pour."""
+
+    def test_anchored_part_goes_next_to_its_anchor_point(self):
+        ic = Item("U1", 6, 5, nets={"VCC", "GND", "A", "B"})
+        others = [Item(f"R{i}", 3, 2, nets={"A", "B"}) for i in range(6)]
+        cap = Item("C1", 3, 2, nets={"VCC", "GND"}, anchor=("U1", 3.0, -2.0))
+        place([ic, *others, cap], ignore_nets={"GND"})
+        # As near the IC corner as the part boxes allow, and nothing overlaps.
+        assert abs(cap.x - (ic.x + 3.0)) <= 3.5 and abs(cap.y - (ic.y - 2.0)) <= 3.5
+        boxes = [it.box() for it in [ic, *others, cap]]
+        assert not any(a[0] < b[2] and b[0] < a[2] and a[1] < b[3] and b[1] < a[3]
+                       for i, a in enumerate(boxes) for b in boxes[i + 1:])
+
+    def test_decoupling_pairs_and_power_nets(self):
+        from circuit_gen.layout.quality import decoupling_pairs, power_nets
+
+        def part(ref, symbol, value, pins):
+            return {"ref": ref, "symbol": symbol, "value": value,
+                    "pins": [{"num": n, "name": name, "type": t, "net": net} for n, name, t, net in pins]}
+        cap = lambda ref, value, net: part(ref, "Device:C", value, [("1", "~", "PASSIVE", net),
+                                                                    ("2", "~", "PASSIVE", "GND")])
+        circuit = {"parts": [
+            part("U1", "Timer:NE555D", "NE555D", [("8", "VCC", "PWRIN", "VCC"), ("1", "GND", "PWRIN", "GND"),
+                                                  ("3", "Q", "OUTPUT", "OUT")]),
+            cap("C1", "10u", "VCC"), cap("C2", "100n", "VCC"), cap("C3", "10n", "CV"),
+            part("L1", "Device:L", "33u", [("1", "1", "PASSIVE", "SW"), ("2", "2", "PASSIVE", "VOUT")]),
+            part("R1", "Device:R", "10k", [("1", "~", "PASSIVE", "OUT"), ("2", "~", "PASSIVE", "SIG")]),
+            part("R2", "Device:R", "0.05", [("1", "~", "PASSIVE", "SENSE"), ("2", "~", "PASSIVE", "GND")]),
+        ]}
+        assert decoupling_pairs(circuit) == [("C2", "U1", "8")]       # the small ceramic, not the bulk
+        assert power_nets(circuit) == {"VCC", "GND", "SW", "VOUT", "SENSE"}
+
+    def test_widen_power_nets_moves_them_to_their_own_class(self, tmp_path):
+        from circuit_gen.layout.route import widen_power_nets
+        dsn = tmp_path / "b.dsn"
+        dsn.write_text('''(pcb x
+  (library
+    (padstack "Via[0-1]_600:300_um"
+      (shape (circle F.Cu 600))
+      (shape (circle B.Cu 600))
+      (attach off)
+    )
+  )
+  (network
+    (class kicad_default "" +5V GND SIG "Net-(R1-Pad1)"
+      (circuit
+        (use_via Via[0-1]_600:300_um)
+      )
+      (rule
+        (width 250)
+        (clearance 200.1)
+      )
+    )
+  )
+)''')
+        assert widen_power_nets(dsn, {"+5V", "GND"}, 0.5, 0.8, 0.4) == ["+5V", "GND"]
+        text = dsn.read_text()
+        default = text[text.index("(class kicad_default"):]
+        power = text[text.index("(class power"):text.index("(class kicad_default")]
+        assert "+5V" not in default and "SIG" in default and '"Net-(R1-Pad1)"' in default
+        assert "(width 500)" in power and "Via[0-1]_800:400_um" in power
+        assert '(padstack "Via[0-1]_800:400_um"' in text and "(circle F.Cu 800)" in text
+
+
+@needs_toolchain
+def test_built_board_has_wide_power_tracks_a_ground_pour_and_close_decoupling(tmp_path):
+    import pcbnew
+    from circuit_gen.pipeline import build
+
+    report = build((EXAMPLES / "blinker_555.py").read_text(), tmp_path)
+    assert report["success"], report["stages"]
+    routing, placement = report["stages"]["routing"], report["stages"]["placement"]
+    assert routing["ground_pour"] == "GND" and "GND" in routing["power_nets"]
+    assert placement["decoupling_mm"] and max(placement["decoupling_mm"].values()) < 6
+    board = pcbnew.LoadBoard(str(tmp_path / "board.kicad_pcb"))
+    widths = {}
+    for t in board.GetTracks():
+        if t.GetClass() == "PCB_TRACK":
+            widths.setdefault(t.GetNetname(), set()).add(pcbnew.ToMM(t.GetWidth()))
+    assert all(w == {0.5} for net, w in widths.items() if net in routing["power_nets"])
+    assert any(w == {0.25} for net, w in widths.items() if net not in routing["power_nets"])
+    assert len(board.Zones()) == 2 and all(z.IsFilled() for z in board.Zones())

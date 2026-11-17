@@ -22,6 +22,9 @@ class Item:
     height: float
     nets: set = field(default_factory=set)
     is_connector: bool = False
+    # (ref, dx, dy): place this part as close as possible to that point, given
+    # relative to the centre of part `ref` (a decoupling capacitor at its IC pin).
+    anchor: tuple | None = None
     x: float = 0.0
     y: float = 0.0
     placed: bool = False
@@ -117,6 +120,23 @@ def _place_near(item, placed, weights, clearance, step, max_radius, n_candidates
     item.placed = True
 
 
+def _place_at(item, tx, ty, placed, clearance, step, max_radius):
+    """Put `item` at the free grid position nearest to (tx, ty)."""
+    best = None
+    cx, cy = round(tx / step) * step, round(ty / step) * step
+    for x, y in _candidate_positions(cx, cy, step, max_radius):
+        d = math.hypot(x - tx, y - ty)
+        if best is not None and max(abs(x - cx), abs(y - cy)) > best[0] + step:
+            break                                   # later rings are all further away
+        item.x, item.y = x, y
+        if _fits(item, placed, clearance) and (best is None or d < best[0]):
+            best = (d, x, y)
+    if best is None:
+        raise RuntimeError(f"no room to place {item.ref}")
+    item.x, item.y = best[1], best[2]
+    item.placed = True
+
+
 def _place_connector(item, core, placed, weights, clearance, step):
     """Put a connector just outside the core cluster on the side nearest its nets."""
     x0 = min(p.box()[0] for p in core)
@@ -159,7 +179,14 @@ def place(items, clearance=1.0, step=0.5, ignore_nets=(), max_radius=60.0):
     def degree(it):
         return sum(weights.get(n, 0.0) for n in it.nets) + 0.01 * it.width * it.height
 
-    remaining = sorted(core, key=degree, reverse=True)
+    by_ref = {it.ref: it for it in items}
+    anchored = {}                                  # anchor ref -> items that belong next to it
+    for it in core:
+        if it.anchor and it.anchor[0] in by_ref and it.anchor[0] != it.ref:
+            anchored.setdefault(it.anchor[0], []).append(it)
+    waiting = {id(it) for group in anchored.values() for it in group}
+
+    remaining = sorted((it for it in core if id(it) not in waiting), key=degree, reverse=True)
     placed = []
     while remaining:
         if placed:
@@ -168,6 +195,15 @@ def place(items, clearance=1.0, step=0.5, ignore_nets=(), max_radius=60.0):
         item = remaining.pop(0)
         _place_near(item, placed, weights, clearance, step, max_radius)
         placed.append(item)
+        # Its decoupling capacitors go in next, before anything else takes the space.
+        for cap in anchored.pop(item.ref, []):
+            _, dx, dy = cap.anchor
+            _place_at(cap, item.x + dx, item.y + dy, placed, clearance, step, max_radius)
+            placed.append(cap)
+    for group in anchored.values():                # anchored to a connector or unplaced part
+        for cap in group:
+            _place_near(cap, placed, weights, clearance, step, max_radius)
+            placed.append(cap)
 
     for item in sorted(connectors, key=degree, reverse=True):
         _place_connector(item, core, placed, weights, clearance, step)

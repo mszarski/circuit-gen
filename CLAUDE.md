@@ -36,7 +36,7 @@ Other subcommands: `datagen`, `export`, `schematic`, `rleval` (see `__main__.py`
 - **`runner.py`** – runs SKiDL code in a subprocess, wrapped with a PRELUDE (library paths, `require()`) and EPILOGUE (ERC, dump to `circuit.json`).
 - **`checks.py`** – structural rules: footprints exist and match pins, no single-pin nets, ICs decoupled, inputs have a DC path, push-pull outputs not tied to rails.
 - **`spice.py`** – maps parts to generic ngspice models; evaluates requirements at nominal and 24 tolerance corners, and the hidden benchmark tests at nominal.
-- **`pipeline.py`** – `build()`: circuit → checks → simulation → `layout/board.py` → `layout/place.py` (greedy) → `layout/route.py` (DSN → FreeRouting → SES → KiCad DRC → Gerbers/SVG). Every stage records into `report.json`.
+- **`pipeline.py`** – `build()`: circuit → checks → simulation → `layout/board.py` → `layout/place.py` (greedy; decoupling capacitors anchored at their IC supply pin per `layout/quality.py`) → `layout/route.py` (DSN → FreeRouting with wide power nets → SES → ground pour → KiCad DRC → Gerbers/SVG). Every stage records into `report.json`.
 - **`evaluate.py`** – benchmark runner; flags false accepts (model declared done, hidden tests failed) and infra errors (API/network failures, not counted against the model).
 - **`rl.py`** – single-shot prompts + reward: 0.2 runs, +0.2 checks (less 0.05/error), +0.6 x fraction of hidden tests.
 - **`config.py`** – all tool paths and model defaults, each overridable by a `CIRCUIT_GEN_*` env var.
@@ -76,6 +76,7 @@ Other subcommands: `datagen`, `export`, `schematic`, `rleval` (see `__main__.py`
 
 - **Benchmark leakage**: benchmark boards (`benchmarks/boards.json`) must never appear in training data. Every procgen family explicitly excludes its benchmark board's parameters, and `generate()` skips any brief matching a benchmark board. Keep this when adding families.
 - **Benchmark integrity**: every board needs a reference in `benchmarks/reference/` and at least two hidden tests the reference passes; plausible wrong designs in `tests/test_benchmark.py` must fail them. The model never sees the hidden tests.
+- Zone fill crashes pcbnew 7 on a board built in memory: save, then `fill_zones()` reloads and fills. KiCad 7's DSN export ignores net classes, so `route.widen_power_nets` edits the DSN text.
 - `pcbnew` is imported lazily inside layout functions so circuit stages work without KiCad's Python module. Don't import it at module top level.
 - `conftest.py` uses `find_spec("skidl")` rather than importing it: importing skidl writes log files. It also disables spec review by default for tests (scripted spec writers answer once).
 - SKiDL is installed with `--no-deps` (its layout helpers don't build on Python 3.13); its real deps are listed in `requirements.txt`.
